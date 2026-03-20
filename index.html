@@ -184,11 +184,11 @@
         const m2 = p.match(/^(\d{1,2})\/(\d{1,2})$/);
         if (m2) { const now = new Date(); dateObj = new Date(now.getFullYear(), +m2[1]-1, +m2[2]); break; }
       }
-      // 金額候補: 数字のみ（カンマ除去）
+      // 金額候補: 10000以上の数値（カンマ・円記号除去）
       let amount = null;
       for (const p of parts) {
-        const n = parseInt(p.replace(/,/g, ''));
-        if (!isNaN(n) && n > 0) { amount = n; break; }
+        const n = parseInt(p.replace(/,/g, '').replace(/円/g, ''));
+        if (!isNaN(n) && n >= 10000) { amount = n; break; }
       }
       if (dateObj && !isNaN(dateObj.getTime()) && amount) {
         records.push({ date: dateObj, amount, dow: dateObj.getDay() });
@@ -549,10 +549,11 @@
         if (pasteRecords.length > 0) {
           coefficients = calculateCoefficients(pasteRecords);
           if (coefficients) {
-            if (coefficients.weekdayAvg) { weekday = coefficients.weekdayAvg; document.getElementById('setup-weekday').value = weekday; }
-            if (coefficients.friAvg)     { fri     = coefficients.friAvg;     document.getElementById('setup-fri').value     = fri; }
-            if (coefficients.satAvg)     { sat     = coefficients.satAvg;     document.getElementById('setup-sat').value     = sat; }
-            if (coefficients.sunAvg)     { sun     = coefficients.sunAvg;     document.getElementById('setup-sun').value     = sun; }
+            // 手入力が空の場合のみコピペデータで補完
+            if (!weekday && coefficients.weekdayAvg) { weekday = coefficients.weekdayAvg; document.getElementById('setup-weekday').value = weekday; }
+            if (!fri     && coefficients.friAvg)     { fri     = coefficients.friAvg;     document.getElementById('setup-fri').value     = fri; }
+            if (!sat     && coefficients.satAvg)     { sat     = coefficients.satAvg;     document.getElementById('setup-sat').value     = sat; }
+            if (!sun     && coefficients.sunAvg)     { sun     = coefficients.sunAvg;     document.getElementById('setup-sun').value     = sun; }
           }
         }
       }
@@ -623,6 +624,7 @@
         document.getElementById('setup-sat').value     = storeData.sat     || '';
         document.getElementById('setup-sun').value     = storeData.sun     || '';
       }
+      document.getElementById('setup-paste-data').value = '';
       showScreen('setup');
     });
 
