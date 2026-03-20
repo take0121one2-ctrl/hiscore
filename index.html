@@ -293,30 +293,19 @@
     const zip = zipcode.replace(/[^0-9]/g, '');
     if (zip.length !== 7) return null;
     try {
-      // CORS対応の郵便番号API
-      const zipRes = await fetch(
-        `https://postcode.teraren.com/postcodes/${zip}.json`
+      // HeartRails Geo API（CORS対応・無料・緯度経度も直接返す）
+      const res = await fetch(
+        `https://geoapi.heartrails.com/api/json?method=searchByPostal&postal=${zip}`
       );
-      if (!zipRes.ok) return null;
-      const zipData = await zipRes.json();
+      const data = await res.json();
+      if (!data.response || !data.response.location || !data.response.location[0]) return null;
 
-      // 住所テキスト組み立て
-      const addressText =
-        (zipData.prefecture || '') +
-        (zipData.city       || '') +
-        (zipData.suburb     || '');
-      if (!addressText) return null;
-
-      // OpenWeatherMap で緯度経度取得
-      const geoRes = await fetch(
-        `https://api.openweathermap.org/geo/1.0/direct?q=${encodeURIComponent(addressText)},JP&limit=1&appid=${WEATHER_API_KEY}`
-      );
-      const geoData = await geoRes.json();
-      if (!geoData || !geoData[0]) return null;
+      const loc = data.response.location[0];
+      const addressText = loc.prefecture + loc.city + loc.town;
 
       return {
-        lat:     geoData[0].lat,
-        lon:     geoData[0].lon,
+        lat:     parseFloat(loc.y),
+        lon:     parseFloat(loc.x),
         address: addressText
       };
     } catch(e) {
