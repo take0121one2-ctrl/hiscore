@@ -709,8 +709,7 @@ html, body { height:100%; font-family:var(--font); font-size:15px; background:va
   display:flex; align-items:center; justify-content:center;
 }
 .lp-brand-mark svg { width:18px; height:18px; stroke:white; fill:none; stroke-width:2.5; stroke-linecap:round; }
-.lp-brand-name { font-family:var(--mono); font-size:20px; font-weight:500; color:#111; }
-.lp-brand-name sub { font-size:10px; color:var(--primary); margin-left:2px; }
+.lp-brand-name { font-family:var(--mono); font-size:20px; font-weight:700; color:#111; }
 .lp-nav-cta {
   padding:10px 24px; background:var(--primary); color:#fff;
   border:none; border-radius:8px; font-family:var(--font);
@@ -871,7 +870,7 @@ html, body { height:100%; font-family:var(--font); font-size:15px; background:va
 .lp-footer-brand { display:flex; align-items:center; gap:8px; }
 .lp-footer-brand-mark { width:28px; height:28px; background:var(--primary); border-radius:6px; display:flex; align-items:center; justify-content:center; }
 .lp-footer-brand-mark svg { width:14px; height:14px; stroke:white; fill:none; stroke-width:2.5; stroke-linecap:round; }
-.lp-footer-brand-name { font-family:var(--mono); font-size:16px; color:rgba(255,255,255,0.7); }
+.lp-footer-brand-name { font-family:var(--mono); font-size:16px; font-weight:700; color:rgba(255,255,255,0.7); }
 .lp-footer-copy { font-size:12px; color:rgba(255,255,255,0.3); }
 
 @media (max-width:768px) {
@@ -908,8 +907,7 @@ html, body { height:100%; font-family:var(--font); font-size:15px; background:va
   display:flex; align-items:center; justify-content:center;
 }
 .brand-mark svg { width:18px; height:18px; stroke:white; fill:none; stroke-width:2.5; stroke-linecap:round; }
-.brand-name     { font-family:var(--mono); font-size:20px; font-weight:500; color:#0F172A; }
-.brand-name sub { font-size:10px; color:var(--primary); letter-spacing:0.1em; margin-left:2px; }
+.brand-name { font-family:var(--mono); font-size:20px; font-weight:700; color:#0F172A; }
 .login-title { font-size:26px; font-weight:900; margin-bottom:10px; color:#0F172A; }
 .login-sub   { font-size:14px; color:#64748B; margin-bottom:32px; line-height:1.6; }
 .form-group  { margin-bottom:16px; }
@@ -975,7 +973,7 @@ html, body { height:100%; font-family:var(--font); font-size:15px; background:va
 .dash-brand      { display:flex; align-items:center; gap:8px; }
 .dash-brand-mark { width:30px; height:30px; background:var(--primary); border-radius:7px; display:flex; align-items:center; justify-content:center; }
 .dash-brand-mark svg { width:14px; height:14px; stroke:white; fill:none; stroke-width:2.5; stroke-linecap:round; }
-.dash-brand-name { font-family:var(--mono); font-size:17px; font-weight:500; color:#0F172A; }
+.dash-brand-name { font-family:var(--mono); font-size:17px; font-weight:700; color:#0F172A; }
 .dash-header-right { display:flex; align-items:center; gap:10px; }
 .dash-store-name { font-size:13px; color:#64748B; }
 .btn-icon {
@@ -1133,10 +1131,21 @@ html, body { height:100%; font-family:var(--font); font-size:15px; background:va
   <!-- Nav -->
   <nav class="lp-nav">
     <div class="lp-nav-brand">
-      <div class="lp-brand-mark">
-        <svg viewBox="0 0 18 18"><polyline points="2,14 6,8 10,11 14,4"/><circle cx="15.5" cy="3" r="1.5" fill="white" stroke="none"/></svg>
+      <div style="width:44px;height:44px;background:#1E2A3A;border-radius:10px;display:flex;align-items:center;justify-content:center;flex-shrink:0;">
+        <svg viewBox="0 0 32 32" width="22" height="22">
+          <line x1="7" y1="19" x2="7" y2="7"   stroke="#60A5FA" stroke-width="3" stroke-linecap="round"/>
+          <line x1="7" y1="7"  x2="25" y2="7"   stroke="#F59E0B" stroke-width="3" stroke-linecap="round"/>
+          <line x1="25" y1="7"  x2="25" y2="25" stroke="#4ADE80" stroke-width="3" stroke-linecap="round"/>
+          <line x1="25" y1="25" x2="7"  y2="25" stroke="#F472B6" stroke-width="3" stroke-linecap="round"/>
+          <line x1="7"  y1="25" x2="7"  y2="19" stroke="#60A5FA" stroke-width="3" stroke-linecap="round"/>
+          <line x1="7"  y1="19" x2="25" y2="19" stroke="white"   stroke-width="3" stroke-linecap="round" opacity="0.9"/>
+          <circle cx="7"  cy="7"  r="2.5" fill="#60A5FA"/>
+          <circle cx="25" cy="7"  r="2.5" fill="#F59E0B"/>
+          <circle cx="25" cy="25" r="2.5" fill="#4ADE80"/>
+          <circle cx="7"  cy="25" r="2.5" fill="#F472B6"/>
+        </svg>
       </div>
-      <div class="lp-brand-name">Hi Score <sub>BETA</sub></div>
+      <div class="lp-brand-name"><span style="font-family:'DM Mono',monospace;font-size:inherit;"><span style="font-weight:700;letter-spacing:-0.5px;">Hi</span><span style="font-weight:300;letter-spacing:-0.5px;"> Score</span></span></div>
     </div>
     <div class="lp-nav-links">
       <a href="#lp-how">使い方</a>
@@ -1344,10 +1353,21 @@ html, body { height:100%; font-family:var(--font); font-size:15px; background:va
   <!-- Footer -->
   <footer class="lp-footer">
     <div class="lp-footer-brand">
-      <div class="lp-footer-brand-mark">
-        <svg viewBox="0 0 18 18"><polyline points="2,14 6,8 10,11 14,4"/><circle cx="15.5" cy="3" r="1.5" fill="white" stroke="none"/></svg>
+      <div style="width:34px;height:34px;background:#1E2A3A;border-radius:8px;display:flex;align-items:center;justify-content:center;flex-shrink:0;">
+        <svg viewBox="0 0 32 32" width="18" height="18">
+          <line x1="7" y1="19" x2="7" y2="7"   stroke="#60A5FA" stroke-width="3" stroke-linecap="round"/>
+          <line x1="7" y1="7"  x2="25" y2="7"   stroke="#F59E0B" stroke-width="3" stroke-linecap="round"/>
+          <line x1="25" y1="7"  x2="25" y2="25" stroke="#4ADE80" stroke-width="3" stroke-linecap="round"/>
+          <line x1="25" y1="25" x2="7"  y2="25" stroke="#F472B6" stroke-width="3" stroke-linecap="round"/>
+          <line x1="7"  y1="25" x2="7"  y2="19" stroke="#60A5FA" stroke-width="3" stroke-linecap="round"/>
+          <line x1="7"  y1="19" x2="25" y2="19" stroke="white"   stroke-width="3" stroke-linecap="round" opacity="0.9"/>
+          <circle cx="7"  cy="7"  r="2.5" fill="#60A5FA"/>
+          <circle cx="25" cy="7"  r="2.5" fill="#F59E0B"/>
+          <circle cx="25" cy="25" r="2.5" fill="#4ADE80"/>
+          <circle cx="7"  cy="25" r="2.5" fill="#F472B6"/>
+        </svg>
       </div>
-      <div class="lp-footer-brand-name">Hi Score</div>
+      <div class="lp-footer-brand-name"><span style="font-family:'DM Mono',monospace;font-size:inherit;"><span style="font-weight:700;letter-spacing:-0.5px;">Hi</span><span style="font-weight:300;letter-spacing:-0.5px;"> Score</span></span></div>
     </div>
     <div class="lp-footer-copy">© 2025 Hi Score. All rights reserved.</div>
   </footer>
@@ -1362,10 +1382,21 @@ html, body { height:100%; font-family:var(--font); font-size:15px; background:va
     <div class="login-top"></div>
     <div class="login-body">
       <div class="login-brand">
-        <div class="brand-mark">
-          <svg viewBox="0 0 18 18"><polyline points="2,14 6,8 10,11 14,4"/><circle cx="15.5" cy="3" r="1.5" fill="white" stroke="none"/></svg>
+        <div style="width:44px;height:44px;background:#1E2A3A;border-radius:10px;display:flex;align-items:center;justify-content:center;flex-shrink:0;">
+          <svg viewBox="0 0 32 32" width="22" height="22">
+            <line x1="7" y1="19" x2="7" y2="7"   stroke="#60A5FA" stroke-width="3" stroke-linecap="round"/>
+            <line x1="7" y1="7"  x2="25" y2="7"   stroke="#F59E0B" stroke-width="3" stroke-linecap="round"/>
+            <line x1="25" y1="7"  x2="25" y2="25" stroke="#4ADE80" stroke-width="3" stroke-linecap="round"/>
+            <line x1="25" y1="25" x2="7"  y2="25" stroke="#F472B6" stroke-width="3" stroke-linecap="round"/>
+            <line x1="7"  y1="25" x2="7"  y2="19" stroke="#60A5FA" stroke-width="3" stroke-linecap="round"/>
+            <line x1="7"  y1="19" x2="25" y2="19" stroke="white"   stroke-width="3" stroke-linecap="round" opacity="0.9"/>
+            <circle cx="7"  cy="7"  r="2.5" fill="#60A5FA"/>
+            <circle cx="25" cy="7"  r="2.5" fill="#F59E0B"/>
+            <circle cx="25" cy="25" r="2.5" fill="#4ADE80"/>
+            <circle cx="7"  cy="25" r="2.5" fill="#F472B6"/>
+          </svg>
         </div>
-        <div class="brand-name">Hi Score <sub>BETA</sub></div>
+        <div class="brand-name"><span style="font-family:'DM Mono',monospace;font-size:inherit;"><span style="font-weight:700;letter-spacing:-0.5px;">Hi</span><span style="font-weight:300;letter-spacing:-0.5px;"> Score</span></span></div>
       </div>
       <div class="login-title">今日の売上を、<br>スコアで読む。</div>
       <div class="login-sub">天気・イベント・カレンダーから翌日の売上ポテンシャルを自動計算します。</div>
@@ -1460,10 +1491,21 @@ html, body { height:100%; font-family:var(--font); font-size:15px; background:va
 <div id="screen-dashboard" class="screen">
   <div class="dash-header">
     <div class="dash-brand">
-      <div class="dash-brand-mark">
-        <svg viewBox="0 0 18 18"><polyline points="2,14 6,8 10,11 14,4"/><circle cx="15.5" cy="3" r="1.5" fill="white" stroke="none"/></svg>
+      <div style="width:34px;height:34px;background:#1E2A3A;border-radius:8px;display:flex;align-items:center;justify-content:center;flex-shrink:0;">
+        <svg viewBox="0 0 32 32" width="18" height="18">
+          <line x1="7" y1="19" x2="7" y2="7"   stroke="#60A5FA" stroke-width="3" stroke-linecap="round"/>
+          <line x1="7" y1="7"  x2="25" y2="7"   stroke="#F59E0B" stroke-width="3" stroke-linecap="round"/>
+          <line x1="25" y1="7"  x2="25" y2="25" stroke="#4ADE80" stroke-width="3" stroke-linecap="round"/>
+          <line x1="25" y1="25" x2="7"  y2="25" stroke="#F472B6" stroke-width="3" stroke-linecap="round"/>
+          <line x1="7"  y1="25" x2="7"  y2="19" stroke="#60A5FA" stroke-width="3" stroke-linecap="round"/>
+          <line x1="7"  y1="19" x2="25" y2="19" stroke="white"   stroke-width="3" stroke-linecap="round" opacity="0.9"/>
+          <circle cx="7"  cy="7"  r="2.5" fill="#60A5FA"/>
+          <circle cx="25" cy="7"  r="2.5" fill="#F59E0B"/>
+          <circle cx="25" cy="25" r="2.5" fill="#4ADE80"/>
+          <circle cx="7"  cy="25" r="2.5" fill="#F472B6"/>
+        </svg>
       </div>
-      <div class="dash-brand-name">Hi Score</div>
+      <div class="dash-brand-name"><span style="font-family:'DM Mono',monospace;font-size:inherit;"><span style="font-weight:700;letter-spacing:-0.5px;">Hi</span><span style="font-weight:300;letter-spacing:-0.5px;"> Score</span></span></div>
     </div>
     <div class="dash-header-right">
       <div id="dash-store-name" class="dash-store-name"></div>
