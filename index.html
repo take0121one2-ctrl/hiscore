@@ -369,7 +369,7 @@
   });
 
   // ─── EVENT HANDLERS ───
-  window.addEventListener('DOMContentLoaded', () => {
+  function initEventHandlers() {
 
     // ── Login ──
     document.getElementById('btn-login').addEventListener('click', async () => {
@@ -494,7 +494,14 @@
     document.getElementById('login-pass').addEventListener('keydown', e => {
       if (e.key === 'Enter') document.getElementById('btn-login').click();
     });
-  });
+  }
+
+  // DOMが読み込まれたらイベントハンドラを初期化
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', initEventHandlers);
+  } else {
+    initEventHandlers();
+  }
 </script>
 
 <style>
@@ -973,11 +980,6 @@ html, body { height:100%; font-family:var(--font); background:var(--navy); color
 
   </div>
 </div>
-
-<script>
-// 店舗名をヘッダーに反映（onAuthStateChangedの外側でも更新できるように）
-const origRender = window.renderDashboard;
-</script>
 
 </body>
 </html>
