@@ -502,15 +502,30 @@
         const settings = d.data().settings;
         if (settings) storeList.push({ id: d.id, ...settings });
       });
+      // ── 旧データ移行：stores が空の場合、旧パスを確認 ──
       if (storeList.length === 0) {
+        const oldSnap = await getDoc(doc(db, 'users', user.uid, 'settings', 'store'));
+        if (oldSnap.exists()) {
+          const oldData = oldSnap.data();
+          const storeRef = doc(collection(db, 'users', user.uid, 'stores'));
+          await setDoc(storeRef, { settings: oldData });
+          currentStoreId = storeRef.id;
+          storeData = { id: currentStoreId, ...oldData };
+          storeList = [storeData];
+          updateStoreSelector();
+          showScreen('dashboard');
+          renderDashboard();
+          return;
+        }
         showScreen('setup');
-      } else {
-        currentStoreId = storeList[0].id;
-        storeData = storeList[0];
-        updateStoreSelector();
-        showScreen('dashboard');
-        renderDashboard();
+        return;
       }
+
+      currentStoreId = storeList[0].id;
+      storeData = storeList[0];
+      updateStoreSelector();
+      showScreen('dashboard');
+      renderDashboard();
     } else {
       currentUser    = null;
       storeData      = null;
@@ -682,15 +697,18 @@
       await renderDashboard();
     });
 
-    document.getElementById('btn-add-store').addEventListener('click', () => {
-      currentStoreId = null;
-      ['setup-name','setup-address','setup-weekday','setup-fri',
-       'setup-sat','setup-sun','setup-paste-data'].forEach(id => {
-        const el = document.getElementById(id);
-        if (el) el.value = '';
+    const btnAddStore = document.getElementById('btn-add-store');
+    if (btnAddStore) {
+      btnAddStore.addEventListener('click', () => {
+        currentStoreId = null;
+        ['setup-name','setup-address','setup-weekday','setup-fri',
+         'setup-sat','setup-sun','setup-paste-data'].forEach(id => {
+          const el = document.getElementById(id);
+          if (el) el.value = '';
+        });
+        showScreen('setup');
       });
-      showScreen('setup');
-    });
+    }
   });
 </script>
 
