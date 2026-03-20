@@ -622,9 +622,10 @@ service cloud.firestore {
       // userプロフィール取得
       const profileSnap = await getDoc(doc(db, 'users', user.uid));
       if (!profileSnap.exists()) {
-        await signOut(auth);
-        showToast('アカウントが設定されていません。管理者にお問い合わせください。', 'error');
-        showScreen('login');
+        // プロフィール未作成 = 新規ユーザー → デフォルトプロフィールを自動生成
+        userProfile = { role: 'store', companyId: user.uid, storeId: null };
+        await setDoc(doc(db, 'users', user.uid), userProfile);
+        showScreen('setup');
         return;
       }
 
@@ -651,8 +652,14 @@ service cloud.firestore {
       } else {
         // store ロール
         currentStoreId = storeId;
+        if (!currentStoreId) {
+          applyRoleUI();
+          showScreen('setup');
+          return;
+        }
         const storeDocSnap = await getDoc(doc(db, 'companies', companyId, 'stores', storeId));
         if (!storeDocSnap.exists() || !storeDocSnap.data().settings) {
+          applyRoleUI();
           showScreen('setup');
         } else {
           storeData = { id: storeId, ...storeDocSnap.data().settings };
@@ -751,7 +758,7 @@ service cloud.firestore {
         return;
       }
       setLoading('設定を保存中...');
-      const companyId = userProfile?.companyId;
+      const companyId = userProfile?.companyId || currentUser.uid;
       const data = { name, address, zipcode, lat: geo.lat, lon: geo.lon, weekday, fri, sat, sun, createdAt: new Date().toISOString() };
       if (coefficients) data.coefficients = coefficients;
       if (currentStoreId) {
@@ -765,6 +772,11 @@ service cloud.firestore {
         storeList.push({ id: currentStoreId, ...data });
       }
       storeData = { id: currentStoreId, ...data };
+      // userProfileのstoreIdを更新
+      if (!userProfile.storeId) {
+        userProfile.storeId = currentStoreId;
+        await setDoc(doc(db, 'users', currentUser.uid), { storeId: currentStoreId }, { merge: true });
+      }
       renderAdminHeader();
       applyRoleUI();
       setLoading(null);
