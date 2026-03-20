@@ -222,23 +222,36 @@
   }
 
   // ─── PREDICTION CALC ───
-  function calcPrediction(totalScore, sd, date, wScore) {
+  function calcPrediction(totalScore, sd, date, wScore, holidays) {
     const d   = date || new Date(Date.now() + 86400000);
     const dow = d.getDay();
+    const dateKey   = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+    const isHoliday = holidays && holidays[dateKey];
+
+    // baseの選択：祝日・日曜は同じ扱い
     let base = 0;
-    if (dow === 0)      base = sd.sun     || sd.weekend || 0;
-    else if (dow === 6) base = sd.sat     || sd.weekend || 0;
-    else if (dow === 5) base = sd.fri     || sd.weekday || 0;
-    else                base = sd.weekday || 0;
+    if (dow === 0 || isHoliday) base = sd.sun     || sd.weekend || 0;
+    else if (dow === 6)         base = sd.sat     || sd.weekend || 0;
+    else if (dow === 5)         base = sd.fri     || sd.weekday || 0;
+    else                        base = sd.weekday || 0;
     if (!base) return null;
-    let multiplier = 3; // デフォルト: 1pt = 3%
+
+    // multiplierの計算
+    let multiplier = 2; // デフォルト: 1pt = 2%（保守的な値）
     const coeff = sd.coefficients;
-    if (coeff) {
-      const ws = (wScore !== undefined && wScore !== null) ? wScore : 0;
-      const ratio = ws > 0 ? coeff.sunnyRatio : ws < 0 ? coeff.rainRatio : 1;
-      multiplier = Math.abs(ratio - 1) / 3 * 100;
-      if (multiplier < 1) multiplier = 1; // 最低1%/pt
+    if (coeff && coeff.sunnyRatio && coeff.rainRatio) {
+      if (wScore > 0 && coeff.sunnyRatio !== 1) {
+        const sunnyPct = (coeff.sunnyRatio - 1) * 100;
+        multiplier = sunnyPct / 3; // 天気スコア3ptで晴れ効果フル
+      } else if (wScore < 0 && coeff.rainRatio !== 1) {
+        const rainPct = (1 - coeff.rainRatio) * 100;
+        multiplier = rainPct / 3;
+      } else {
+        multiplier = 2; // 曇りの日はデフォルト
+      }
+      multiplier = Math.max(1, Math.min(multiplier, 8)); // 1〜8%/ptに制限
     }
+
     const pct    = totalScore * multiplier;
     const amount = Math.round(base * (1 + pct / 100) / 1000) * 1000;
     return { base, pct: Math.round(pct), amount };
@@ -312,7 +325,7 @@
   // ─── SCORE CARD HTML ───
   function buildScoreCard(label, date, wScore, cScore) {
     const total   = wScore.score + cScore.score;
-    const pred    = storeData ? calcPrediction(total, storeData, date, wScore.score) : null;
+    const pred    = storeData ? calcPrediction(total, storeData, date, wScore.score, window._holidays) : null;
     const dow     = '日月火水木金土'[date.getDay()];
     const dateStr = formatDate(date) + `（${dow}）`;
     const cls     = total >= 5 ? 'high' : total >= 0 ? 'mid' : 'low';
@@ -370,6 +383,9 @@
     try {
       const today    = new Date();
       const tomorrow = new Date(Date.now() + 86400000);
+
+      // 祝日データをグローバルに保持
+      window._holidays = await fetchHolidays();
 
       const [wToday, wTomorrow] = await Promise.all([
         fetchWeatherScore(storeData.lat, storeData.lon, today),
@@ -573,7 +589,7 @@
       const cal         = await getCalendarScore(yesterday);
       const wScore      = await fetchWeatherScore(storeData.lat, storeData.lon, yesterday);
       const total       = cal.score + wScore.score;
-      const pred        = calcPrediction(total, storeData, yesterday, wScore.score);
+      const pred        = calcPrediction(total, storeData, yesterday, wScore.score, window._holidays);
       setLoading('保存中...');
       await addDoc(collection(db, 'users', currentUser.uid, 'results'), {
         date: dateStr, actual: amount, predicted: pred ? pred.amount : null,
