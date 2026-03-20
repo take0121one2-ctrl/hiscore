@@ -14,7 +14,7 @@
   import { getFirestore, doc, setDoc, getDoc, collection, addDoc, query, orderBy, limit, getDocs, where }
     from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js';
 
-  // ─── FIREBASE CONFIG（デプロイ前にここを差し替え）───
+  // ─── FIREBASE CONFIG ───
   const firebaseConfig = {
     apiKey:            "AIzaSyCStmBYPtA-T_E16ey9yLBcIXe7bw69XUI",
     authDomain:        "hiscore-e2b49.firebaseapp.com",
@@ -24,7 +24,7 @@
     appId:             "1:840598155001:web:6d316b09bf03235c7bfc28"
   };
 
-  // ─── OPENWEATHERMAP API KEY（デプロイ前にここを差し替え）───
+  // ─── OPENWEATHERMAP API KEY ───
   const WEATHER_API_KEY = "03b880437b6fb1e38794df9e39fb949c";
 
   const app  = initializeApp(firebaseConfig);
@@ -34,37 +34,34 @@
   // ─── STATE ───
   let currentUser = null;
   let storeData   = null;
-  let currentView = 'login'; // login | setup | dashboard
+  let currentView = 'lp';
 
   // ─── WEATHER SCORE ───
-  async function fetchWeatherScore(lat, lon) {
+  async function fetchWeatherScore(lat, lon, date) {
     try {
-      const url = `https://api.openweathermap.org/data/2.5/forecast?lat=${lat}&lon=${lon}&appid=${WEATHER_API_KEY}&units=metric&lang=ja&cnt=8`;
+      const url = `https://api.openweathermap.org/data/2.5/forecast?lat=${lat}&lon=${lon}&appid=${WEATHER_API_KEY}&units=metric&lang=ja&cnt=16`;
       const res  = await fetch(url);
       const data = await res.json();
       if (!data.list) return { score: 0, label: '天気取得失敗', detail: '' };
 
-      // 明日のデータを抽出
-      const tomorrow = new Date();
-      tomorrow.setDate(tomorrow.getDate() + 1);
-      const tomorrowStr = tomorrow.toISOString().slice(0, 10);
-      const tList = data.list.filter(d => d.dt_txt.startsWith(tomorrowStr));
+      const targetDate = date || new Date(Date.now() + 86400000);
+      const targetStr  = targetDate.toISOString().slice(0, 10);
+      const tList = data.list.filter(d => d.dt_txt.startsWith(targetStr));
       if (!tList.length) return { score: 0, label: 'データなし', detail: '' };
 
-      // 代表値（12時台）
-      const rep = tList.find(d => d.dt_txt.includes('12:00')) || tList[0];
+      const rep     = tList.find(d => d.dt_txt.includes('12:00')) || tList[0];
       const weather = rep.weather[0].main;
       const temp    = Math.round(rep.main.temp);
       const wind    = rep.wind.speed;
 
       let score = 0;
       let label = '';
-      if (weather === 'Clear')      { score = 3;  label = '晴れ'; }
-      else if (weather === 'Clouds'){ score = 1;  label = '曇り'; }
-      else if (weather === 'Rain' || weather === 'Drizzle') { score = -3; label = '雨'; }
-      else if (weather === 'Snow')  { score = -4; label = '雪'; }
-      else if (weather === 'Thunderstorm') { score = -5; label = '雷雨'; }
-      else { score = 0; label = weather; }
+      if (weather === 'Clear')                                     { score =  3; label = '晴れ'; }
+      else if (weather === 'Clouds')                               { score =  1; label = '曇り'; }
+      else if (weather === 'Rain' || weather === 'Drizzle')        { score = -3; label = '雨'; }
+      else if (weather === 'Snow')                                 { score = -4; label = '雪'; }
+      else if (weather === 'Thunderstorm')                         { score = -5; label = '雷雨'; }
+      else                                                         { score =  0; label = weather; }
 
       if (wind >= 10) score -= 1;
       if (temp >= 30) score -= 1;
@@ -78,32 +75,27 @@
 
   // ─── CALENDAR SCORE ───
   function getCalendarScore(date) {
-    const d       = date || new Date(Date.now() + 86400000);
-    const dow     = d.getDay(); // 0=日 6=土
-    const month   = d.getMonth() + 1;
-    const day     = d.getDate();
+    const d      = date || new Date(Date.now() + 86400000);
+    const dow    = d.getDay();
+    const month  = d.getMonth() + 1;
+    const day    = d.getDate();
     let score = 0;
     let factors = [];
 
-    // 曜日
-    if (dow === 5) { score += 3; factors.push({ label: '金曜日', pt: 3 }); }
+    if (dow === 5)      { score += 3; factors.push({ label: '金曜日', pt: 3 }); }
     else if (dow === 6) { score += 3; factors.push({ label: '土曜日', pt: 3 }); }
     else if (dow === 0) { score += 2; factors.push({ label: '日曜日', pt: 2 }); }
-    else { score += 0; }
 
-    // 季節イベント
-    if (month === 3 && day >= 20 && day <= 31) { score += 2; factors.push({ label: '花見シーズン', pt: 2 }); }
-    if (month === 4 && day <= 10)               { score += 2; factors.push({ label: '花見シーズン', pt: 2 }); }
-    if ((month === 4 && day >= 28) || (month === 5 && day <= 6)) { score += 3; factors.push({ label: 'GW', pt: 3 }); }
-    if (month === 7 || month === 8)             { score += 1; factors.push({ label: '夏季シーズン', pt: 1 }); }
-    if (month === 12 && day >= 20)              { score += 2; factors.push({ label: '年末シーズン', pt: 2 }); }
-    if (month === 12 && day === 24)             { score += 3; factors.push({ label: 'クリスマスイブ', pt: 3 }); }
-    if (month === 12 && day === 31)             { score += 3; factors.push({ label: '大晦日', pt: 3 }); }
-    if (month === 1 && day <= 3)                { score += 3; factors.push({ label: '正月', pt: 3 }); }
-    if (month === 2 && day === 14)              { score += 2; factors.push({ label: 'バレンタイン', pt: 2 }); }
-    if (month === 10 && day === 31)             { score += 2; factors.push({ label: 'ハロウィン', pt: 2 }); }
-
-    // 3〜4月、9〜10月は歓送迎会シーズン
+    if (month === 3 && day >= 20 && day <= 31)                     { score += 2; factors.push({ label: '花見シーズン', pt: 2 }); }
+    if (month === 4 && day <= 10)                                   { score += 2; factors.push({ label: '花見シーズン', pt: 2 }); }
+    if ((month === 4 && day >= 28) || (month === 5 && day <= 6))   { score += 3; factors.push({ label: 'GW', pt: 3 }); }
+    if (month === 7 || month === 8)                                 { score += 1; factors.push({ label: '夏季シーズン', pt: 1 }); }
+    if (month === 12 && day >= 20)                                  { score += 2; factors.push({ label: '年末シーズン', pt: 2 }); }
+    if (month === 12 && day === 24)                                 { score += 3; factors.push({ label: 'クリスマスイブ', pt: 3 }); }
+    if (month === 12 && day === 31)                                 { score += 3; factors.push({ label: '大晦日', pt: 3 }); }
+    if (month === 1  && day <= 3)                                   { score += 3; factors.push({ label: '正月', pt: 3 }); }
+    if (month === 2  && day === 14)                                 { score += 2; factors.push({ label: 'バレンタイン', pt: 2 }); }
+    if (month === 10 && day === 31)                                 { score += 2; factors.push({ label: 'ハロウィン', pt: 2 }); }
     if ((month === 3 || month === 4 || month === 9 || month === 10) && dow === 5) {
       score += 1; factors.push({ label: '歓送迎会シーズン', pt: 1 });
     }
@@ -112,20 +104,16 @@
   }
 
   // ─── PREDICTION CALC ───
-  function calcPrediction(totalScore, storeData, date) {
+  function calcPrediction(totalScore, sd, date) {
     const d   = date || new Date(Date.now() + 86400000);
     const dow = d.getDay();
-    const dowMap = [0, 1, 2, 3, 4, 5, 6]; // 日〜土
-    // 曜日ベース売上
     let base = 0;
-    const sd = storeData;
-    if (dow === 0) base = sd.sun   || sd.weekend || 0;
-    else if (dow === 6) base = sd.sat || sd.weekend || 0;
-    else if (dow === 5) base = sd.fri || sd.weekday || 0;
-    else base = sd.weekday || 0;
-
+    if (dow === 0)      base = sd.sun     || sd.weekend || 0;
+    else if (dow === 6) base = sd.sat     || sd.weekend || 0;
+    else if (dow === 5) base = sd.fri     || sd.weekday || 0;
+    else                base = sd.weekday || 0;
     if (!base) return null;
-    const pct    = totalScore * 3; // 1pt = 3%
+    const pct    = totalScore * 3;
     const amount = Math.round(base * (1 + pct / 100) / 1000) * 1000;
     return { base, pct, amount };
   }
@@ -133,54 +121,36 @@
   // ─── ACCURACY REPORT ───
   async function calcAccuracyReport(uid) {
     try {
-      const q = query(
-        collection(db, 'users', uid, 'results'),
-        orderBy('date', 'desc'),
-        limit(30)
-      );
+      const q = query(collection(db, 'users', uid, 'results'), orderBy('date', 'desc'), limit(30));
       const snap = await getDocs(q);
       const records = [];
       snap.forEach(d => records.push(d.data()));
-
       if (!records.length) return null;
-
-      let totalDiff = 0;
-      let count = 0;
+      let totalDiff = 0, count = 0;
       records.forEach(r => {
         if (r.predicted && r.actual) {
-          const diff = Math.abs(r.actual - r.predicted) / r.predicted * 100;
-          totalDiff += diff;
+          totalDiff += Math.abs(r.actual - r.predicted) / r.predicted * 100;
           count++;
         }
       });
-
-      const accuracy = count ? Math.round(100 - totalDiff / count) : null;
-      const days     = records.length;
-
-      // 傾向分析
-      const rainRecords  = records.filter(r => r.weatherLabel && r.weatherLabel.includes('雨'));
-      const friRecords   = records.filter(r => r.dow === 5);
-      let rainTrend = null, friTrend = null;
-
-      if (rainRecords.length >= 3) {
-        const avgDiff = rainRecords.reduce((s, r) => {
+      const accuracy  = count ? Math.round(100 - totalDiff / count) : null;
+      const rainRecs  = records.filter(r => r.weatherLabel && r.weatherLabel.includes('雨'));
+      let rainTrend   = null;
+      if (rainRecs.length >= 3) {
+        const avg = rainRecs.reduce((s, r) => {
           if (r.predicted && r.actual) return s + (r.actual - r.predicted) / r.predicted * 100;
           return s;
-        }, 0) / rainRecords.length;
-        rainTrend = Math.round(avgDiff);
+        }, 0) / rainRecs.length;
+        rainTrend = Math.round(avg);
       }
-
-      return { accuracy, days, rainTrend, friTrend, count };
-    } catch(e) {
-      return null;
-    }
+      return { accuracy, days: records.length, rainTrend, count };
+    } catch(e) { return null; }
   }
 
   // ─── GEOCODE ───
   async function geocodeAddress(address) {
-    // OpenWeatherMapのgeocoding APIを利用
     try {
-      const url = `https://api.openweathermap.org/geo/1.0/direct?q=${encodeURIComponent(address)}&limit=1&appid=${WEATHER_API_KEY}`;
+      const url  = `https://api.openweathermap.org/geo/1.0/direct?q=${encodeURIComponent(address)}&limit=1&appid=${WEATHER_API_KEY}`;
       const res  = await fetch(url);
       const data = await res.json();
       if (data && data[0]) return { lat: data[0].lat, lon: data[0].lon };
@@ -188,7 +158,7 @@
     return null;
   }
 
-  // ─── UI RENDER ───
+  // ─── UI HELPERS ───
   function showScreen(name) {
     document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
     const el = document.getElementById(`screen-${name}`);
@@ -202,71 +172,99 @@
     document.getElementById('loading-overlay').style.display = msg ? 'flex' : 'none';
   }
 
-  function showToast(msg, type='info') {
+  function showToast(msg, type = 'info') {
     const t = document.getElementById('toast');
     t.textContent = msg;
     t.className = `toast show ${type}`;
     setTimeout(() => t.classList.remove('show'), 3000);
   }
 
+  function formatDate(d) {
+    return `${d.getFullYear()}/${d.getMonth()+1}/${d.getDate()}`;
+  }
+
+  // ─── SCORE CARD HTML ───
+  function buildScoreCard(label, date, wScore, cScore) {
+    const total   = wScore.score + cScore.score;
+    const pred    = storeData ? calcPrediction(total, storeData, date) : null;
+    const dow     = '日月火水木金土'[date.getDay()];
+    const dateStr = formatDate(date) + `（${dow}）`;
+    const cls     = total >= 5 ? 'high' : total >= 0 ? 'mid' : 'low';
+
+    let action = '';
+    if (total >= 8)       action = '仕込みを通常の1.3倍に。スタッフ+1名を検討。';
+    else if (total >= 4)  action = '仕込みをやや多めに。通常シフトで対応可能。';
+    else if (total >= 0)  action = '通常通りの仕込み・シフトで問題なし。';
+    else if (total >= -3) action = '仕込みを少し抑えめに。閑散が予想されます。';
+    else                  action = '仕込みを大幅に絞る。最低限シフトを推奨。';
+
+    const factors = [];
+    if (wScore.score !== 0) factors.push({ label: wScore.detail, pt: wScore.score });
+    factors.push(...cScore.factors);
+    const fHtml = factors.map(f =>
+      `<div class="factor-row">
+        <span class="factor-label">${f.label}</span>
+        <span class="factor-pt ${f.pt >= 0 ? 'pos' : 'neg'}">${f.pt >= 0 ? '+' : ''}${f.pt}pt</span>
+      </div>`
+    ).join('') || '<div class="factor-row"><span class="factor-label">特記事項なし</span></div>';
+
+    const predHtml = pred
+      ? `<div class="pred-box">
+          <div><div class="pred-label-sm">予測売上</div><div class="pred-amount">¥${pred.amount.toLocaleString()}</div></div>
+          <div class="pred-pct">${pred.pct >= 0 ? '平均比 +' : '平均比 '}${pred.pct}%</div>
+        </div>`
+      : `<div class="pred-box"><div class="pred-label-sm">予測売上</div><div style="font-size:13px;color:rgba(255,255,255,0.4);">売上データを設定してください</div></div>`;
+
+    return `
+      <div class="score-main-card">
+        <div class="score-card-top"></div>
+        <div class="score-card-body">
+          <div class="score-card-header">
+            <div>
+              <div class="score-label-sm">${label}</div>
+              <div class="score-date-val">${dateStr}</div>
+            </div>
+            <div class="score-badge">${label === 'Today' ? '本日' : '翌日'}</div>
+          </div>
+          <div class="score-display">
+            <div class="score-big ${cls}">${total >= 0 ? '+' : ''}${total}</div>
+            <div class="score-unit">pt</div>
+          </div>
+          <div class="score-caption">Hi Score</div>
+          <div class="factor-list">${fHtml}</div>
+          ${predHtml}
+          <div class="action-bar"><div class="action-dot"></div><span>${action}</span></div>
+        </div>
+      </div>`;
+  }
+
   // ─── DASHBOARD RENDER ───
   async function renderDashboard() {
     setLoading('スコアを計算中...');
     try {
+      const today    = new Date();
       const tomorrow = new Date(Date.now() + 86400000);
-      const dayAfter  = new Date(Date.now() + 172800000);
 
-      // 天気スコア
-      const wScore = await fetchWeatherScore(storeData.lat, storeData.lon);
-      // カレンダースコア
-      const cScore = getCalendarScore(tomorrow);
-      const total  = wScore.score + cScore.score;
+      const [wToday, wTomorrow] = await Promise.all([
+        fetchWeatherScore(storeData.lat, storeData.lon, today),
+        fetchWeatherScore(storeData.lat, storeData.lon, tomorrow)
+      ]);
+      const cToday    = getCalendarScore(today);
+      const cTomorrow = getCalendarScore(tomorrow);
 
-      // 予測
-      const pred = calcPrediction(total, storeData, tomorrow);
-
-      // 表示
-      document.getElementById('score-number').textContent = (total >= 0 ? '+' : '') + total;
-      document.getElementById('score-number').className = 'score-big ' + (total >= 5 ? 'high' : total >= 0 ? 'mid' : 'low');
-      document.getElementById('score-date').textContent = formatDate(tomorrow) + '（' + '日月火水木金土'[tomorrow.getDay()] + '）';
-
-      // ファクター
-      const factors = [];
-      if (wScore.score !== 0) factors.push({ label: wScore.detail, pt: wScore.score });
-      factors.push(...cScore.factors);
-      const fHtml = factors.map(f => `
-        <div class="factor-row">
-          <span class="factor-label">${f.label}</span>
-          <span class="factor-pt ${f.pt >= 0 ? 'pos' : 'neg'}">${f.pt >= 0 ? '+' : ''}${f.pt}pt</span>
-        </div>`).join('');
-      document.getElementById('factor-list').innerHTML = fHtml || '<div class="factor-row"><span class="factor-label">特記事項なし</span></div>';
-
-      // 予測売上
-      if (pred) {
-        document.getElementById('pred-amount').textContent = '¥' + pred.amount.toLocaleString();
-        document.getElementById('pred-pct').textContent = (pred.pct >= 0 ? '平均比 +' : '平均比 ') + pred.pct + '%';
-      } else {
-        document.getElementById('pred-amount').textContent = '—';
-        document.getElementById('pred-pct').textContent = '売上データを設定してください';
+      const scorePanel = document.getElementById('score-cards-container');
+      if (scorePanel) {
+        scorePanel.innerHTML =
+          buildScoreCard('Today',    today,    wToday,    cToday) +
+          buildScoreCard('Tomorrow', tomorrow, wTomorrow, cTomorrow);
       }
 
-      // 推奨アクション
-      let action = '';
-      if (total >= 8)       action = '仕込みを通常の1.3倍に。スタッフ+1名を検討。';
-      else if (total >= 4)  action = '仕込みをやや多めに。通常シフトで対応可能。';
-      else if (total >= 0)  action = '通常通りの仕込み・シフトで問題なし。';
-      else if (total >= -3) action = '仕込みを少し抑えめに。閑散が予想されます。';
-      else                  action = '仕込みを大幅に絞る。最低限シフトを推奨。';
-      document.getElementById('recommend-action').textContent = action;
-
-      // 週間カレンダー
       renderWeekCalendar();
 
-      // 実績入力フォーム（昨日）
       const yesterday = new Date(Date.now() - 86400000);
-      document.getElementById('result-date-label').textContent = formatDate(yesterday) + 'の実績売上';
+      const resultLbl = document.getElementById('result-date-label');
+      if (resultLbl) resultLbl.textContent = formatDate(yesterday) + 'の実績売上';
 
-      // 的中率レポート
       const report = await calcAccuracyReport(currentUser.uid);
       renderAccuracyReport(report);
 
@@ -279,36 +277,33 @@
 
   function renderWeekCalendar() {
     const days = [];
-    for (let i = 1; i <= 7; i++) {
-      const d = new Date(Date.now() + i * 86400000);
+    for (let i = 0; i <= 6; i++) {
+      const d   = new Date(Date.now() + i * 86400000);
       const cal = getCalendarScore(d);
-      // 天気スコアはAPIコストを抑えるためカレンダースコアのみで表示
       days.push({ date: d, score: cal.score, dow: '日月火水木金土'[d.getDay()] });
     }
-
     const maxScore = Math.max(...days.map(d => d.score), 1);
     const minScore = Math.min(...days.map(d => d.score), 0);
     const topDay   = days.reduce((a, b) => a.score > b.score ? a : b);
-
     const html = days.map(d => {
       const isTop  = d.date.toDateString() === topDay.date.toDateString();
       const height = Math.max(8, Math.round(((d.score - minScore) / (maxScore - minScore + 1)) * 60) + 8);
       return `
         <div class="week-col ${isTop ? 'top' : ''}">
           <div class="week-score">${d.score >= 0 ? '+' : ''}${d.score}</div>
-          <div class="week-bar-wrap">
-            <div class="week-bar ${d.score >= 5 ? 'hi' : d.score >= 2 ? 'mid' : d.score >= 0 ? 'low' : 'neg'}" style="height:${height}px"></div>
-          </div>
+          <div class="week-bar-wrap"><div class="week-bar ${d.score >= 5 ? 'hi' : d.score >= 2 ? 'mid' : d.score >= 0 ? 'low' : 'neg'}" style="height:${height}px"></div></div>
           <div class="week-dow">${d.dow}</div>
           <div class="week-date">${d.date.getMonth()+1}/${d.date.getDate()}</div>
           ${isTop ? '<div class="week-star">山場</div>' : ''}
         </div>`;
     }).join('');
-    document.getElementById('week-calendar').innerHTML = html;
+    const el = document.getElementById('week-calendar');
+    if (el) el.innerHTML = html;
   }
 
   function renderAccuracyReport(report) {
     const el = document.getElementById('accuracy-content');
+    if (!el) return;
     if (!report || report.days < 3) {
       el.innerHTML = `
         <div class="acc-empty">
@@ -322,18 +317,9 @@
     const acc = report.accuracy;
     el.innerHTML = `
       <div class="acc-stats">
-        <div class="acc-stat-item">
-          <div class="acc-stat-num ${acc >= 80 ? 'good' : acc >= 60 ? 'mid' : 'low'}">${acc}%</div>
-          <div class="acc-stat-label">的中率</div>
-        </div>
-        <div class="acc-stat-item">
-          <div class="acc-stat-num">${report.days}日</div>
-          <div class="acc-stat-label">蓄積データ</div>
-        </div>
-        <div class="acc-stat-item">
-          <div class="acc-stat-num">${report.count}件</div>
-          <div class="acc-stat-label">比較件数</div>
-        </div>
+        <div class="acc-stat-item"><div class="acc-stat-num ${acc >= 80 ? 'good' : acc >= 60 ? 'mid' : 'low'}">${acc}%</div><div class="acc-stat-label">的中率</div></div>
+        <div class="acc-stat-item"><div class="acc-stat-num">${report.days}日</div><div class="acc-stat-label">蓄積データ</div></div>
+        <div class="acc-stat-item"><div class="acc-stat-num">${report.count}件</div><div class="acc-stat-label">比較件数</div></div>
       </div>
       ${report.rainTrend !== null ? `
       <div class="acc-trend">
@@ -343,15 +329,10 @@
       <div class="acc-hint">使い続けるほど精度が上がります</div>`;
   }
 
-  function formatDate(d) {
-    return `${d.getFullYear()}/${d.getMonth()+1}/${d.getDate()}`;
-  }
-
   // ─── AUTH ───
   onAuthStateChanged(auth, async (user) => {
     if (user) {
       currentUser = user;
-      // 店舗データ取得
       const snap = await getDoc(doc(db, 'users', user.uid, 'settings', 'store'));
       if (snap.exists()) {
         storeData = snap.data();
@@ -364,14 +345,17 @@
     } else {
       currentUser = null;
       storeData   = null;
-      showScreen('login');
+      showScreen('lp');
     }
   });
+
+  // ─── LP → LOGIN BRIDGE ───
+  window._showLogin = () => showScreen('login');
 
   // ─── EVENT HANDLERS ───
   window.addEventListener('DOMContentLoaded', () => {
 
-    // ── Login ──
+    // Login
     document.getElementById('btn-login').addEventListener('click', async () => {
       const email = document.getElementById('login-email').value.trim();
       const pass  = document.getElementById('login-pass').value;
@@ -402,7 +386,7 @@
       await signOut(auth);
     });
 
-    // ── Setup ──
+    // Setup
     document.getElementById('btn-save-setup').addEventListener('click', async () => {
       const name    = document.getElementById('setup-name').value.trim();
       const address = document.getElementById('setup-address').value.trim();
@@ -410,9 +394,7 @@
       const fri     = parseInt(document.getElementById('setup-fri').value) || 0;
       const sat     = parseInt(document.getElementById('setup-sat').value) || 0;
       const sun     = parseInt(document.getElementById('setup-sun').value) || 0;
-
       if (!name || !address) { showToast('店舗名と住所を入力してください', 'error'); return; }
-
       setLoading('住所を解析中...');
       const geo = await geocodeAddress(address);
       if (!geo) {
@@ -420,7 +402,6 @@
         showToast('住所の解析に失敗しました。より詳細な住所を入力してください。', 'error');
         return;
       }
-
       setLoading('設定を保存中...');
       const data = { name, address, lat: geo.lat, lon: geo.lon, weekday, fri, sat, sun, createdAt: new Date().toISOString() };
       await setDoc(doc(db, 'users', currentUser.uid, 'settings', 'store'), data);
@@ -432,48 +413,40 @@
       renderDashboard();
     });
 
-    // ── Result Input ──
+    // Result Input
     document.getElementById('btn-save-result').addEventListener('click', async () => {
       const amount = parseInt(document.getElementById('result-amount').value);
       if (!amount || amount < 0) { showToast('売上金額を入力してください', 'error'); return; }
-
       const yesterday   = new Date(Date.now() - 86400000);
       const dateStr     = yesterday.toISOString().slice(0, 10);
       const cal         = getCalendarScore(yesterday);
-      const wScore      = await fetchWeatherScore(storeData.lat, storeData.lon);
+      const wScore      = await fetchWeatherScore(storeData.lat, storeData.lon, yesterday);
       const total       = cal.score + wScore.score;
       const pred        = calcPrediction(total, storeData, yesterday);
-
       setLoading('保存中...');
       await addDoc(collection(db, 'users', currentUser.uid, 'results'), {
-        date:         dateStr,
-        actual:       amount,
-        predicted:    pred ? pred.amount : null,
-        scoreTotal:   total,
-        weatherLabel: wScore.label,
-        dow:          yesterday.getDay(),
-        createdAt:    new Date().toISOString()
+        date: dateStr, actual: amount, predicted: pred ? pred.amount : null,
+        scoreTotal: total, weatherLabel: wScore.label, dow: yesterday.getDay(),
+        createdAt: new Date().toISOString()
       });
       setLoading(null);
       document.getElementById('result-amount').value = '';
       showToast('実績を保存しました', 'success');
-      // レポート更新
       const report = await calcAccuracyReport(currentUser.uid);
       renderAccuracyReport(report);
     });
 
-    // ── Nav tabs ──
+    // Nav tabs
     document.querySelectorAll('.nav-tab').forEach(tab => {
       tab.addEventListener('click', () => {
         document.querySelectorAll('.nav-tab').forEach(t => t.classList.remove('active'));
         tab.classList.add('active');
-        const target = tab.dataset.tab;
         document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
-        document.getElementById(`tab-${target}`).classList.add('active');
+        document.getElementById(`tab-${tab.dataset.tab}`).classList.add('active');
       });
     });
 
-    // ── Settings link ──
+    // Settings link
     document.getElementById('btn-edit-setup').addEventListener('click', () => {
       if (storeData) {
         document.getElementById('setup-name').value    = storeData.name    || '';
@@ -490,7 +463,6 @@
       showScreen('dashboard');
     });
 
-    // Enterキー対応
     document.getElementById('login-pass').addEventListener('keydown', e => {
       if (e.key === 'Enter') document.getElementById('btn-login').click();
     });
@@ -499,18 +471,16 @@
 
 <style>
 :root {
-  --primary:       #2563EB;
-  --primary-dark:  #1D4ED8;
-  --sidebar-bg:    #1E2A3A;
-  --sidebar-dark:  #162030;
-  --navy:          #0F1922;
-  --accent:        #F59E0B;
-  --white:         #FFFFFF;
-  --border-dark:   rgba(255,255,255,0.08);
-  --success:       #16A34A;
-  --danger:        #DC2626;
-  --font:          'Noto Sans JP', sans-serif;
-  --mono:          'DM Mono', monospace;
+  --primary:      #2563EB;
+  --primary-dark: #1D4ED8;
+  --accent:       #F59E0B;
+  --sidebar-bg:   #1E2A3A;
+  --sidebar-dark: #162030;
+  --navy:         #0F1922;
+  --white:        #FFFFFF;
+  --border-dark:  rgba(255,255,255,0.08);
+  --font:         'Noto Sans JP', sans-serif;
+  --mono:         'DM Mono', monospace;
 }
 * { margin:0; padding:0; box-sizing:border-box; }
 html, body { height:100%; font-family:var(--font); background:var(--navy); color:var(--white); overflow-x:hidden; }
@@ -534,7 +504,7 @@ html, body { height:100%; font-family:var(--font); background:var(--navy); color
   padding:12px 24px; border-radius:10px; font-size:13px; z-index:998;
   transition:transform 0.3s; pointer-events:none; white-space:nowrap;
 }
-.toast.show { transform:translateX(-50%) translateY(0); }
+.toast.show    { transform:translateX(-50%) translateY(0); }
 .toast.success { border-color:rgba(22,163,74,0.4); }
 .toast.error   { border-color:rgba(220,38,38,0.4); }
 
@@ -542,7 +512,209 @@ html, body { height:100%; font-family:var(--font); background:var(--navy); color
 .screen { display:none; }
 .screen.active { display:flex; flex-direction:column; min-height:100vh; }
 
-/* ── LOGIN ── */
+/* ════════════════════════════════
+   LP
+════════════════════════════════ */
+#screen-lp { background:#fff; color:#111; }
+
+/* Nav */
+.lp-nav {
+  position:sticky; top:0; z-index:200;
+  display:flex; align-items:center; justify-content:space-between;
+  padding:0 40px; height:68px;
+  background:#fff; border-bottom:1px solid #E5E7EB;
+}
+.lp-nav-links { display:flex; gap:32px; }
+.lp-nav-links a {
+  font-size:14px; color:#374151; text-decoration:none; font-weight:500;
+  transition:color 0.2s;
+}
+.lp-nav-links a:hover { color:var(--primary); }
+.lp-nav-brand { display:flex; align-items:center; gap:10px; }
+.lp-brand-mark {
+  width:36px; height:36px; background:var(--primary); border-radius:8px;
+  display:flex; align-items:center; justify-content:center;
+}
+.lp-brand-mark svg { width:18px; height:18px; stroke:white; fill:none; stroke-width:2.5; stroke-linecap:round; }
+.lp-brand-name { font-family:var(--mono); font-size:20px; font-weight:500; color:#111; }
+.lp-brand-name sub { font-size:10px; color:var(--primary); margin-left:2px; }
+.lp-nav-cta {
+  padding:10px 24px; background:var(--primary); color:#fff;
+  border:none; border-radius:8px; font-family:var(--font);
+  font-size:14px; font-weight:700; cursor:pointer; transition:background 0.2s;
+}
+.lp-nav-cta:hover { background:var(--primary-dark); }
+
+/* Hero */
+.lp-hero {
+  display:flex; align-items:center; justify-content:center;
+  gap:60px; padding:80px 40px 72px;
+  background:linear-gradient(160deg,#F0F7FF 0%,#fff 65%);
+  flex-wrap:wrap;
+}
+.lp-hero-text { max-width:520px; }
+.lp-hero-badge {
+  display:inline-flex; align-items:center; gap:6px;
+  background:#EFF6FF; border:1px solid #BFDBFE;
+  border-radius:999px; padding:5px 14px; margin-bottom:24px;
+  font-size:12px; font-weight:700; color:var(--primary);
+}
+.lp-hero h1 {
+  font-size:clamp(32px,5vw,54px); font-weight:900;
+  line-height:1.2; margin-bottom:20px; color:#0F1922;
+}
+.lp-hero h1 span { color:var(--primary); }
+.lp-hero p {
+  font-size:17px; color:#6B7280; line-height:1.85; margin-bottom:36px;
+}
+.lp-hero-btns { display:flex; gap:12px; flex-wrap:wrap; }
+.lp-btn-primary {
+  padding:15px 32px; background:var(--primary); color:#fff;
+  border:none; border-radius:10px; font-family:var(--font);
+  font-size:15px; font-weight:700; cursor:pointer; transition:all 0.2s;
+}
+.lp-btn-primary:hover { background:var(--primary-dark); transform:translateY(-2px); }
+.lp-btn-ghost {
+  padding:15px 32px; background:transparent; color:#374151;
+  border:2px solid #D1D5DB; border-radius:10px; font-family:var(--font);
+  font-size:15px; font-weight:700; cursor:pointer; transition:all 0.2s;
+}
+.lp-btn-ghost:hover { border-color:#9CA3AF; }
+
+/* Score mock UI */
+.lp-mock {
+  background:var(--sidebar-bg); border-radius:20px; padding:24px;
+  width:300px; flex-shrink:0;
+  box-shadow:0 24px 64px rgba(37,99,235,0.18);
+  border:1px solid rgba(37,99,235,0.2);
+}
+.lp-mock-top { height:3px; background:linear-gradient(90deg,var(--primary),#60A5FA,var(--accent)); border-radius:2px; margin-bottom:20px; }
+.lp-mock-label { font-family:var(--mono); font-size:10px; color:rgba(255,255,255,0.35); letter-spacing:0.12em; text-transform:uppercase; margin-bottom:4px; }
+.lp-mock-date { font-size:13px; color:rgba(255,255,255,0.7); font-weight:700; margin-bottom:16px; }
+.lp-mock-score { font-family:var(--mono); font-size:72px; font-weight:500; line-height:1; color:var(--accent); margin-bottom:4px; }
+.lp-mock-unit  { font-family:var(--mono); font-size:13px; color:rgba(255,255,255,0.3); letter-spacing:0.1em; margin-bottom:16px; }
+.lp-mock-factor { display:flex; justify-content:space-between; align-items:center; padding:8px 0; border-top:1px solid rgba(255,255,255,0.07); font-size:12px; }
+.lp-mock-factor span:first-child { color:rgba(255,255,255,0.55); }
+.lp-mock-factor span:last-child  { font-family:var(--mono); color:#4ADE80; }
+.lp-mock-pred { background:rgba(37,99,235,0.15); border-radius:8px; padding:10px 14px; margin-top:12px; display:flex; justify-content:space-between; align-items:center; }
+.lp-mock-pred-label { font-size:10px; color:rgba(255,255,255,0.4); }
+.lp-mock-pred-amount { font-family:var(--mono); font-size:18px; font-weight:500; }
+
+/* Stats bar */
+.lp-stats {
+  display:flex; justify-content:center; gap:0;
+  background:#0F1922; padding:40px 40px;
+  flex-wrap:wrap;
+}
+.lp-stat-item {
+  flex:1; min-width:180px; text-align:center; padding:16px 24px;
+  border-right:1px solid rgba(255,255,255,0.08);
+}
+.lp-stat-item:last-child { border-right:none; }
+.lp-stat-num  { font-family:var(--mono); font-size:40px; font-weight:500; color:var(--accent); margin-bottom:6px; }
+.lp-stat-desc { font-size:13px; color:rgba(255,255,255,0.45); }
+
+/* Section common */
+.lp-section { padding:80px 40px; }
+.lp-section-inner { max-width:1000px; margin:0 auto; }
+.lp-section-head { text-align:center; margin-bottom:56px; }
+.lp-eyebrow {
+  display:inline-block; font-size:12px; font-weight:700; color:var(--primary);
+  letter-spacing:0.12em; text-transform:uppercase; margin-bottom:12px;
+}
+.lp-section-head h2 { font-size:clamp(24px,4vw,36px); font-weight:900; color:#0F1922; margin-bottom:12px; }
+.lp-section-head p  { font-size:15px; color:#6B7280; line-height:1.8; }
+
+/* Problem cards */
+.lp-problems { display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:20px; }
+.lp-problem-card {
+  background:#fff; border:1px solid #E5E7EB; border-radius:16px; padding:28px 24px;
+  border-top:3px solid var(--primary);
+}
+.lp-problem-icon {
+  width:48px; height:48px; background:#EFF6FF; border-radius:12px;
+  display:flex; align-items:center; justify-content:center; margin-bottom:16px;
+}
+.lp-problem-icon svg { width:24px; height:24px; stroke:var(--primary); fill:none; stroke-width:2; stroke-linecap:round; }
+.lp-problem-card h3 { font-size:16px; font-weight:700; margin-bottom:8px; color:#111; }
+.lp-problem-card p  { font-size:14px; color:#6B7280; line-height:1.75; }
+
+/* How steps */
+.lp-steps { display:grid; grid-template-columns:repeat(auto-fit,minmax(200px,1fr)); gap:24px; }
+.lp-step { text-align:center; padding:32px 20px; }
+.lp-step-num {
+  width:52px; height:52px; border-radius:50%; background:var(--primary); color:#fff;
+  display:flex; align-items:center; justify-content:center;
+  font-family:var(--mono); font-size:22px; font-weight:500;
+  margin:0 auto 20px;
+}
+.lp-step h3 { font-size:16px; font-weight:700; margin-bottom:8px; color:#111; }
+.lp-step p  { font-size:14px; color:#6B7280; line-height:1.75; }
+
+/* Features */
+.lp-features-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(280px,1fr)); gap:24px; }
+.lp-feature-card {
+  background:#fff; border:1px solid #E5E7EB; border-radius:16px; padding:32px 28px;
+  display:flex; gap:20px; align-items:flex-start;
+}
+.lp-feature-icon {
+  width:52px; height:52px; border-radius:12px; background:#EFF6FF; flex-shrink:0;
+  display:flex; align-items:center; justify-content:center;
+}
+.lp-feature-icon svg { width:24px; height:24px; stroke:var(--primary); fill:none; stroke-width:2; stroke-linecap:round; }
+.lp-feature-card h3 { font-size:16px; font-weight:700; margin-bottom:8px; color:#111; }
+.lp-feature-card p  { font-size:14px; color:#6B7280; line-height:1.75; }
+
+/* Evidence */
+.lp-evidence-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(200px,1fr)); gap:20px; }
+.lp-evidence-card {
+  background:#fff; border:1px solid #E5E7EB; border-radius:16px; padding:28px 24px; text-align:center;
+}
+.lp-evidence-num  { font-family:var(--mono); font-size:40px; font-weight:500; color:var(--primary); margin-bottom:6px; }
+.lp-evidence-unit { font-size:13px; font-weight:700; color:var(--primary); margin-bottom:8px; }
+.lp-evidence-desc { font-size:13px; color:#6B7280; line-height:1.7; }
+
+/* CTA section */
+.lp-cta {
+  padding:96px 40px; text-align:center;
+  background:linear-gradient(135deg,#0F1922 0%,#1E3A5F 50%,var(--primary) 100%);
+}
+.lp-cta h2 { font-size:clamp(28px,5vw,44px); font-weight:900; color:#fff; margin-bottom:16px; }
+.lp-cta p  { font-size:16px; color:rgba(255,255,255,0.7); margin-bottom:40px; line-height:1.8; }
+.lp-cta-btns { display:flex; gap:16px; justify-content:center; flex-wrap:wrap; }
+.lp-cta-primary {
+  padding:18px 48px; background:#fff; color:var(--primary);
+  border:none; border-radius:12px; font-family:var(--font);
+  font-size:16px; font-weight:900; cursor:pointer; transition:all 0.2s;
+}
+.lp-cta-primary:hover { transform:translateY(-2px); box-shadow:0 12px 32px rgba(0,0,0,0.3); }
+.lp-cta-sub { font-size:13px; color:rgba(255,255,255,0.45); margin-top:20px; }
+
+/* Footer */
+.lp-footer {
+  background:#0F1922; padding:32px 40px;
+  display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:16px;
+}
+.lp-footer-brand { display:flex; align-items:center; gap:8px; }
+.lp-footer-brand-mark { width:28px; height:28px; background:var(--primary); border-radius:6px; display:flex; align-items:center; justify-content:center; }
+.lp-footer-brand-mark svg { width:14px; height:14px; stroke:white; fill:none; stroke-width:2.5; stroke-linecap:round; }
+.lp-footer-brand-name { font-family:var(--mono); font-size:16px; color:rgba(255,255,255,0.7); }
+.lp-footer-copy { font-size:12px; color:rgba(255,255,255,0.3); }
+
+@media (max-width:768px) {
+  .lp-nav { padding:0 20px; }
+  .lp-nav-links { display:none; }
+  .lp-hero { padding:56px 20px 48px; gap:40px; }
+  .lp-mock { width:100%; max-width:320px; }
+  .lp-section { padding:56px 20px; }
+  .lp-stats { padding:32px 20px; }
+  .lp-cta { padding:64px 20px; }
+  .lp-footer { padding:24px 20px; }
+}
+
+/* ════════════════════════════════
+   LOGIN
+════════════════════════════════ */
 #screen-login {
   align-items:center; justify-content:center; padding:24px;
   background: radial-gradient(ellipse at 60% 0%, rgba(37,99,235,0.12) 0%, transparent 60%),
@@ -555,7 +727,7 @@ html, body { height:100%; font-family:var(--font); background:var(--navy); color
   border-radius:20px; overflow:hidden;
   box-shadow:0 24px 64px rgba(0,0,0,0.4);
 }
-.login-top { height:4px; background:linear-gradient(90deg, var(--primary), #60A5FA); }
+.login-top  { height:4px; background:linear-gradient(90deg,var(--primary),#60A5FA); }
 .login-body { padding:40px 36px; }
 .login-brand { display:flex; align-items:center; gap:10px; margin-bottom:32px; }
 .brand-mark {
@@ -563,7 +735,7 @@ html, body { height:100%; font-family:var(--font); background:var(--navy); color
   display:flex; align-items:center; justify-content:center;
 }
 .brand-mark svg { width:18px; height:18px; stroke:white; fill:none; stroke-width:2.5; stroke-linecap:round; }
-.brand-name { font-family:var(--mono); font-size:20px; font-weight:500; }
+.brand-name     { font-family:var(--mono); font-size:20px; font-weight:500; }
 .brand-name sub { font-size:10px; color:var(--accent); letter-spacing:0.1em; margin-left:2px; }
 .login-title { font-size:22px; font-weight:900; margin-bottom:8px; }
 .login-sub   { font-size:13px; color:rgba(255,255,255,0.45); margin-bottom:28px; line-height:1.6; }
@@ -574,43 +746,43 @@ html, body { height:100%; font-family:var(--font); background:var(--navy); color
   border-radius:8px; padding:12px 14px; color:var(--white); font-family:var(--font); font-size:14px;
   outline:none; transition:border-color 0.2s;
 }
-.form-input:focus { border-color:rgba(37,99,235,0.6); }
+.form-input:focus       { border-color:rgba(37,99,235,0.6); }
 .form-input::placeholder { color:rgba(255,255,255,0.25); }
-.btn-row { display:flex; gap:10px; margin-top:24px; }
-.btn-full {
-  flex:1; padding:13px; border:none; border-radius:8px; font-family:var(--font);
-  font-weight:700; font-size:14px; cursor:pointer; transition:all 0.2s;
-}
+.btn-row          { display:flex; gap:10px; margin-top:24px; }
+.btn-full         { flex:1; padding:13px; border:none; border-radius:8px; font-family:var(--font); font-weight:700; font-size:14px; cursor:pointer; transition:all 0.2s; }
 .btn-primary-full { background:var(--primary); color:var(--white); }
 .btn-primary-full:hover { background:var(--primary-dark); transform:translateY(-1px); }
-.btn-ghost-full { background:rgba(255,255,255,0.07); color:rgba(255,255,255,0.7); }
+.btn-ghost-full   { background:rgba(255,255,255,0.07); color:rgba(255,255,255,0.7); }
 .btn-ghost-full:hover { background:rgba(255,255,255,0.12); }
+.login-back-lp {
+  text-align:center; margin-top:20px; font-size:13px;
+  color:rgba(255,255,255,0.35);
+}
+.login-back-lp a { color:rgba(255,255,255,0.55); cursor:pointer; text-decoration:underline; }
+.login-back-lp a:hover { color:rgba(255,255,255,0.8); }
 
-/* ── SETUP ── */
+/* ════════════════════════════════
+   SETUP
+════════════════════════════════ */
 #screen-setup { background:var(--navy); }
 .setup-header {
   height:64px; background:rgba(15,25,34,0.95); border-bottom:1px solid var(--border-dark);
   display:flex; align-items:center; padding:0 24px; gap:16px;
   position:sticky; top:0; z-index:100;
 }
-.setup-back {
-  background:none; border:none; color:rgba(255,255,255,0.5); font-size:13px;
-  cursor:pointer; font-family:var(--font); transition:color 0.2s;
-}
+.setup-back { background:none; border:none; color:rgba(255,255,255,0.5); font-size:13px; cursor:pointer; font-family:var(--font); transition:color 0.2s; }
 .setup-back:hover { color:var(--white); }
 .setup-header-title { font-size:16px; font-weight:700; }
-.setup-body { padding:32px 24px; max-width:560px; margin:0 auto; }
+.setup-body  { padding:32px 24px; max-width:560px; margin:0 auto; }
 .setup-section { margin-bottom:32px; }
 .setup-section-title {
   font-family:var(--mono); font-size:11px; color:#60A5FA; letter-spacing:0.15em;
   text-transform:uppercase; margin-bottom:16px; display:flex; align-items:center; gap:8px;
 }
 .setup-section-title::before { content:''; display:block; width:20px; height:1px; background:var(--primary); }
-.setup-card {
-  background:var(--sidebar-bg); border:1px solid var(--border-dark); border-radius:12px; padding:24px;
-}
+.setup-card { background:var(--sidebar-bg); border:1px solid var(--border-dark); border-radius:12px; padding:24px; }
 .setup-grid { display:grid; grid-template-columns:1fr 1fr; gap:16px; }
-.form-hint { font-size:11px; color:rgba(255,255,255,0.3); margin-top:5px; }
+.form-hint  { font-size:11px; color:rgba(255,255,255,0.3); margin-top:5px; }
 .btn-save {
   width:100%; padding:15px; background:var(--primary); color:var(--white); border:none;
   border-radius:10px; font-family:var(--font); font-weight:700; font-size:15px;
@@ -618,14 +790,16 @@ html, body { height:100%; font-family:var(--font); background:var(--navy); color
 }
 .btn-save:hover { background:var(--primary-dark); transform:translateY(-1px); box-shadow:0 8px 24px rgba(37,99,235,0.3); }
 
-/* ── DASHBOARD ── */
+/* ════════════════════════════════
+   DASHBOARD
+════════════════════════════════ */
 #screen-dashboard { background:var(--navy); }
 .dash-header {
   height:60px; background:rgba(15,25,34,0.95); border-bottom:1px solid var(--border-dark);
   display:flex; align-items:center; justify-content:space-between; padding:0 20px;
   position:sticky; top:0; z-index:100; backdrop-filter:blur(12px);
 }
-.dash-brand { display:flex; align-items:center; gap:8px; }
+.dash-brand      { display:flex; align-items:center; gap:8px; }
 .dash-brand-mark { width:30px; height:30px; background:var(--primary); border-radius:7px; display:flex; align-items:center; justify-content:center; }
 .dash-brand-mark svg { width:14px; height:14px; stroke:white; fill:none; stroke-width:2.5; stroke-linecap:round; }
 .dash-brand-name { font-family:var(--mono); font-size:16px; font-weight:500; }
@@ -638,7 +812,7 @@ html, body { height:100%; font-family:var(--font); background:var(--navy); color
 .btn-icon:hover { background:rgba(255,255,255,0.12); }
 .btn-icon svg { width:14px; height:14px; stroke:rgba(255,255,255,0.5); fill:none; stroke-width:2; stroke-linecap:round; }
 
-/* ── NAV TABS ── */
+/* Nav tabs */
 .nav-tabs {
   display:flex; background:var(--sidebar-dark); border-bottom:1px solid var(--border-dark);
   padding:0 20px; gap:4px; overflow-x:auto; -webkit-overflow-scrolling:touch;
@@ -651,133 +825,116 @@ html, body { height:100%; font-family:var(--font); background:var(--navy); color
 .nav-tab.active { color:var(--white); border-bottom-color:var(--primary); }
 .nav-tab:hover  { color:rgba(255,255,255,0.7); }
 
-/* ── TAB PANELS ── */
+/* Tab panels */
 .tab-panels { flex:1; }
-.tab-panel { display:none; padding:20px; }
+.tab-panel  { display:none; padding:20px; }
 .tab-panel.active { display:block; }
 
-/* ── SCORE CARD ── */
+/* Score cards (今日・明日) */
+#score-cards-container { display:flex; flex-direction:column; gap:16px; }
 .score-main-card {
   background:var(--sidebar-bg); border:1px solid rgba(255,255,255,0.08);
-  border-radius:16px; overflow:hidden; margin-bottom:16px;
+  border-radius:16px; overflow:hidden;
   box-shadow:0 8px 32px rgba(0,0,0,0.3);
 }
-.score-card-top { height:3px; background:linear-gradient(90deg, var(--primary), #60A5FA, var(--accent)); }
+.score-card-top  { height:3px; background:linear-gradient(90deg,var(--primary),#60A5FA,var(--accent)); }
 .score-card-body { padding:24px; }
 .score-card-header { display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:20px; }
 .score-label-sm { font-family:var(--mono); font-size:10px; color:rgba(255,255,255,0.35); letter-spacing:0.12em; text-transform:uppercase; margin-bottom:3px; }
 .score-date-val { font-size:14px; font-weight:700; }
-.score-badge {
-  background:rgba(37,99,235,0.2); border:1px solid rgba(37,99,235,0.35);
-  color:#60A5FA; font-size:10px; font-weight:500; padding:4px 10px; border-radius:100px;
-}
+.score-badge { background:rgba(37,99,235,0.2); border:1px solid rgba(37,99,235,0.35); color:#60A5FA; font-size:10px; font-weight:500; padding:4px 10px; border-radius:100px; }
 .score-display { display:flex; align-items:baseline; gap:12px; margin-bottom:8px; }
-.score-big { font-family:var(--mono); font-size:80px; font-weight:500; line-height:1; }
+.score-big      { font-family:var(--mono); font-size:80px; font-weight:500; line-height:1; }
 .score-big.high { color:var(--accent); }
 .score-big.mid  { color:#60A5FA; }
 .score-big.low  { color:rgba(255,255,255,0.5); }
-.score-unit { font-family:var(--mono); font-size:24px; color:rgba(255,255,255,0.4); }
-.score-caption { font-family:var(--mono); font-size:10px; color:rgba(255,255,255,0.3); letter-spacing:0.1em; text-transform:uppercase; margin-bottom:20px; }
-.factor-list { border-top:1px solid rgba(255,255,255,0.07); padding-top:16px; margin-bottom:16px; display:flex; flex-direction:column; gap:8px; }
-.factor-row { display:flex; justify-content:space-between; align-items:center; }
-.factor-label { font-size:13px; color:rgba(255,255,255,0.6); }
-.factor-pt { font-family:var(--mono); font-size:13px; font-weight:500; }
-.factor-pt.pos { color:#4ADE80; }
-.factor-pt.neg { color:#F87171; }
-.pred-box {
-  background:rgba(37,99,235,0.1); border:1px solid rgba(37,99,235,0.2);
-  border-radius:10px; padding:14px 18px; display:flex; justify-content:space-between; align-items:center; margin-bottom:14px;
-}
-.pred-label-sm { font-size:11px; color:rgba(255,255,255,0.4); margin-bottom:3px; }
-.pred-amount { font-family:var(--mono); font-size:20px; font-weight:500; }
-.pred-pct { font-family:var(--mono); font-size:13px; color:#4ADE80; }
-.action-bar { display:flex; align-items:center; gap:8px; font-size:12px; color:rgba(255,255,255,0.45); padding-top:12px; border-top:1px solid rgba(255,255,255,0.07); }
-.action-dot { width:6px; height:6px; background:var(--accent); border-radius:50%; flex-shrink:0; }
+.score-unit     { font-family:var(--mono); font-size:24px; color:rgba(255,255,255,0.4); }
+.score-caption  { font-family:var(--mono); font-size:10px; color:rgba(255,255,255,0.3); letter-spacing:0.1em; text-transform:uppercase; margin-bottom:20px; }
+.factor-list    { border-top:1px solid rgba(255,255,255,0.07); padding-top:16px; margin-bottom:16px; display:flex; flex-direction:column; gap:8px; }
+.factor-row     { display:flex; justify-content:space-between; align-items:center; }
+.factor-label   { font-size:13px; color:rgba(255,255,255,0.6); }
+.factor-pt      { font-family:var(--mono); font-size:13px; font-weight:500; }
+.factor-pt.pos  { color:#4ADE80; }
+.factor-pt.neg  { color:#F87171; }
+.pred-box { background:rgba(37,99,235,0.1); border:1px solid rgba(37,99,235,0.2); border-radius:10px; padding:14px 18px; display:flex; justify-content:space-between; align-items:center; margin-bottom:14px; }
+.pred-label-sm  { font-size:11px; color:rgba(255,255,255,0.4); margin-bottom:3px; }
+.pred-amount    { font-family:var(--mono); font-size:20px; font-weight:500; }
+.pred-pct       { font-family:var(--mono); font-size:13px; color:#4ADE80; }
+.action-bar     { display:flex; align-items:center; gap:8px; font-size:12px; color:rgba(255,255,255,0.45); padding-top:12px; border-top:1px solid rgba(255,255,255,0.07); }
+.action-dot     { width:6px; height:6px; background:var(--accent); border-radius:50%; flex-shrink:0; }
 
-/* ── WEEK CALENDAR ── */
-.week-card {
-  background:var(--sidebar-bg); border:1px solid var(--border-dark);
-  border-radius:12px; padding:20px; margin-bottom:16px;
-}
+/* Week calendar */
+.week-card       { background:var(--sidebar-bg); border:1px solid var(--border-dark); border-radius:12px; padding:20px; margin-bottom:16px; }
 .week-card-title { font-family:var(--mono); font-size:11px; color:#60A5FA; letter-spacing:0.15em; text-transform:uppercase; margin-bottom:16px; }
-#week-calendar { display:flex; gap:8px; align-items:flex-end; }
-.week-col { flex:1; display:flex; flex-direction:column; align-items:center; gap:4px; position:relative; }
+#week-calendar   { display:flex; gap:8px; align-items:flex-end; }
+.week-col        { flex:1; display:flex; flex-direction:column; align-items:center; gap:4px; position:relative; }
 .week-col.top .week-bar { background:var(--accent) !important; }
-.week-score { font-family:var(--mono); font-size:11px; color:rgba(255,255,255,0.5); }
-.week-bar-wrap { width:100%; display:flex; justify-content:center; }
-.week-bar { width:80%; border-radius:3px 3px 0 0; transition:height 0.3s; }
-.week-bar.hi  { background:var(--primary); }
-.week-bar.mid { background:rgba(37,99,235,0.45); }
-.week-bar.low { background:rgba(255,255,255,0.12); }
-.week-bar.neg { background:rgba(220,38,38,0.35); }
-.week-dow  { font-size:12px; font-weight:700; }
-.week-date { font-family:var(--mono); font-size:9px; color:rgba(255,255,255,0.3); }
-.week-star { font-size:9px; color:var(--accent); font-weight:700; letter-spacing:0.05em; }
+.week-score      { font-family:var(--mono); font-size:11px; color:rgba(255,255,255,0.5); }
+.week-bar-wrap   { width:100%; display:flex; justify-content:center; }
+.week-bar        { width:80%; border-radius:3px 3px 0 0; transition:height 0.3s; }
+.week-bar.hi     { background:var(--primary); }
+.week-bar.mid    { background:rgba(37,99,235,0.45); }
+.week-bar.low    { background:rgba(255,255,255,0.12); }
+.week-bar.neg    { background:rgba(220,38,38,0.35); }
+.week-dow        { font-size:12px; font-weight:700; }
+.week-date       { font-family:var(--mono); font-size:9px; color:rgba(255,255,255,0.3); }
+.week-star       { font-size:9px; color:var(--accent); font-weight:700; letter-spacing:0.05em; }
 
-/* ── RESULT INPUT ── */
-.result-card {
-  background:var(--sidebar-bg); border:1px solid var(--border-dark);
-  border-radius:12px; padding:24px; margin-bottom:16px;
-}
-.result-title { font-size:15px; font-weight:700; margin-bottom:4px; }
-.result-date  { font-size:12px; color:rgba(255,255,255,0.4); margin-bottom:20px; }
-.result-input-wrap { display:flex; gap:10px; align-items:center; }
-.result-prefix { font-family:var(--mono); font-size:18px; color:rgba(255,255,255,0.5); }
+/* Result */
+.result-card        { background:var(--sidebar-bg); border:1px solid var(--border-dark); border-radius:12px; padding:24px; margin-bottom:16px; }
+.result-title       { font-size:15px; font-weight:700; margin-bottom:4px; }
+.result-date        { font-size:12px; color:rgba(255,255,255,0.4); margin-bottom:20px; }
+.result-input-wrap  { display:flex; gap:10px; align-items:center; }
+.result-prefix      { font-family:var(--mono); font-size:18px; color:rgba(255,255,255,0.5); }
 .result-input {
   flex:1; background:rgba(255,255,255,0.06); border:1px solid rgba(255,255,255,0.1);
   border-radius:8px; padding:12px 14px; color:var(--white); font-family:var(--mono);
   font-size:18px; outline:none; transition:border-color 0.2s;
 }
-.result-input:focus { border-color:rgba(37,99,235,0.6); }
+.result-input:focus       { border-color:rgba(37,99,235,0.6); }
 .result-input::placeholder { color:rgba(255,255,255,0.2); }
-.btn-result-save {
-  padding:12px 20px; background:var(--primary); color:var(--white); border:none;
-  border-radius:8px; font-family:var(--font); font-weight:700; font-size:14px; cursor:pointer; transition:all 0.2s;
-}
+.btn-result-save { padding:12px 20px; background:var(--primary); color:var(--white); border:none; border-radius:8px; font-family:var(--font); font-weight:700; font-size:14px; cursor:pointer; transition:all 0.2s; }
 .btn-result-save:hover { background:var(--primary-dark); }
 .result-hint { font-size:11px; color:rgba(255,255,255,0.3); margin-top:10px; }
 
-/* ── ACCURACY ── */
-.acc-card { background:var(--sidebar-bg); border:1px solid var(--border-dark); border-radius:12px; padding:24px; }
-.acc-title { font-size:15px; font-weight:700; margin-bottom:4px; }
-.acc-sub { font-size:12px; color:rgba(255,255,255,0.4); margin-bottom:20px; }
-.acc-empty { text-align:center; padding:20px 0; }
-.acc-empty-num { font-family:var(--mono); font-size:36px; color:rgba(255,255,255,0.2); margin-bottom:8px; }
-.acc-empty-msg { font-size:13px; color:rgba(255,255,255,0.4); line-height:1.7; margin-bottom:16px; }
-.acc-progress-bar { height:4px; background:rgba(255,255,255,0.08); border-radius:2px; margin-bottom:6px; overflow:hidden; }
+/* Accuracy */
+.acc-card       { background:var(--sidebar-bg); border:1px solid var(--border-dark); border-radius:12px; padding:24px; }
+.acc-title      { font-size:15px; font-weight:700; margin-bottom:4px; }
+.acc-sub        { font-size:12px; color:rgba(255,255,255,0.4); margin-bottom:20px; }
+.acc-empty      { text-align:center; padding:20px 0; }
+.acc-empty-num  { font-family:var(--mono); font-size:36px; color:rgba(255,255,255,0.2); margin-bottom:8px; }
+.acc-empty-msg  { font-size:13px; color:rgba(255,255,255,0.4); line-height:1.7; margin-bottom:16px; }
+.acc-progress-bar  { height:4px; background:rgba(255,255,255,0.08); border-radius:2px; margin-bottom:6px; overflow:hidden; }
 .acc-progress-fill { height:100%; background:var(--primary); border-radius:2px; transition:width 0.5s; }
 .acc-progress-label { font-family:var(--mono); font-size:10px; color:rgba(255,255,255,0.25); letter-spacing:0.08em; }
-.acc-stats { display:grid; grid-template-columns:repeat(3,1fr); gap:12px; margin-bottom:16px; }
-.acc-stat-item { background:rgba(255,255,255,0.04); border-radius:8px; padding:14px; text-align:center; }
-.acc-stat-num { font-family:var(--mono); font-size:24px; font-weight:500; margin-bottom:4px; }
+.acc-stats      { display:grid; grid-template-columns:repeat(3,1fr); gap:12px; margin-bottom:16px; }
+.acc-stat-item  { background:rgba(255,255,255,0.04); border-radius:8px; padding:14px; text-align:center; }
+.acc-stat-num   { font-family:var(--mono); font-size:24px; font-weight:500; margin-bottom:4px; }
 .acc-stat-num.good { color:var(--accent); }
 .acc-stat-num.mid  { color:#60A5FA; }
 .acc-stat-num.low  { color:rgba(255,255,255,0.4); }
 .acc-stat-label { font-size:11px; color:rgba(255,255,255,0.35); }
-.acc-trend { display:flex; justify-content:space-between; align-items:center; background:rgba(255,255,255,0.04); border-radius:8px; padding:12px 16px; margin-bottom:12px; }
+.acc-trend      { display:flex; justify-content:space-between; align-items:center; background:rgba(255,255,255,0.04); border-radius:8px; padding:12px 16px; margin-bottom:12px; }
 .acc-trend-label { font-size:13px; color:rgba(255,255,255,0.55); }
-.acc-trend-val { font-family:var(--mono); font-size:14px; font-weight:500; }
+.acc-trend-val  { font-family:var(--mono); font-size:14px; font-weight:500; }
 .acc-trend-val.pos { color:#4ADE80; }
 .acc-trend-val.neg { color:#F87171; }
-.acc-hint { font-size:11px; color:rgba(255,255,255,0.25); text-align:center; margin-top:4px; }
+.acc-hint       { font-size:11px; color:rgba(255,255,255,0.25); text-align:center; margin-top:4px; }
 
-/* ── SETTINGS TAB ── */
-.settings-section { max-width:480px; }
-.settings-title { font-size:15px; font-weight:700; margin-bottom:4px; }
-.settings-sub { font-size:12px; color:rgba(255,255,255,0.4); margin-bottom:20px; }
-.settings-card { background:var(--sidebar-bg); border:1px solid var(--border-dark); border-radius:12px; padding:20px; margin-bottom:12px; }
-.settings-item { display:flex; justify-content:space-between; align-items:center; padding:10px 0; border-bottom:1px solid rgba(255,255,255,0.06); }
+/* Settings */
+.settings-section   { max-width:480px; }
+.settings-title     { font-size:15px; font-weight:700; margin-bottom:4px; }
+.settings-sub       { font-size:12px; color:rgba(255,255,255,0.4); margin-bottom:20px; }
+.settings-card      { background:var(--sidebar-bg); border:1px solid var(--border-dark); border-radius:12px; padding:20px; margin-bottom:12px; }
+.settings-item      { display:flex; justify-content:space-between; align-items:center; padding:10px 0; border-bottom:1px solid rgba(255,255,255,0.06); }
 .settings-item:last-child { border-bottom:none; }
 .settings-item-label { font-size:13px; color:rgba(255,255,255,0.55); }
-.settings-item-val { font-size:13px; font-weight:500; }
-.btn-settings {
-  width:100%; padding:12px; border-radius:8px; font-family:var(--font);
-  font-weight:700; font-size:14px; cursor:pointer; transition:all 0.2s; border:none;
-}
-.btn-settings.primary { background:var(--primary); color:var(--white); margin-bottom:8px; }
+.settings-item-val  { font-size:13px; font-weight:500; }
+.btn-settings       { width:100%; padding:12px; border-radius:8px; font-family:var(--font); font-weight:700; font-size:14px; cursor:pointer; transition:all 0.2s; border:none; }
+.btn-settings.primary       { background:var(--primary); color:var(--white); margin-bottom:8px; }
 .btn-settings.primary:hover { background:var(--primary-dark); }
-.btn-settings.danger { background:rgba(220,38,38,0.15); color:#F87171; border:1px solid rgba(220,38,38,0.25); }
-.btn-settings.danger:hover { background:rgba(220,38,38,0.25); }
+.btn-settings.danger        { background:rgba(220,38,38,0.15); color:#F87171; border:1px solid rgba(220,38,38,0.25); }
+.btn-settings.danger:hover  { background:rgba(220,38,38,0.25); }
 </style>
 </head>
 <body>
@@ -791,7 +948,238 @@ html, body { height:100%; font-family:var(--font); background:var(--navy); color
 <!-- TOAST -->
 <div id="toast" class="toast"></div>
 
-<!-- ── LOGIN ── -->
+<!-- ══════════════════════════════════════
+     LP
+══════════════════════════════════════ -->
+<div id="screen-lp" class="screen">
+
+  <!-- Nav -->
+  <nav class="lp-nav">
+    <div class="lp-nav-brand">
+      <div class="lp-brand-mark">
+        <svg viewBox="0 0 18 18"><polyline points="2,14 6,8 10,11 14,4"/><circle cx="15.5" cy="3" r="1.5" fill="white" stroke="none"/></svg>
+      </div>
+      <div class="lp-brand-name">Hi Score <sub>BETA</sub></div>
+    </div>
+    <div class="lp-nav-links">
+      <a href="#lp-how">使い方</a>
+      <a href="#lp-features">機能</a>
+      <a href="#lp-pricing">料金</a>
+    </div>
+    <button class="lp-nav-cta" onclick="window._showLogin()">無料で試す</button>
+  </nav>
+
+  <!-- Hero -->
+  <section class="lp-hero">
+    <div class="lp-hero-text">
+      <div class="lp-hero-badge">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><polyline points="22 7 13.5 15.5 8.5 10.5 2 17"/></svg>
+        飲食店向け 売上スコア管理
+      </div>
+      <h1>今日の売上を、<br><span>スコアで読む。</span></h1>
+      <p>天気・曜日・季節イベントを加味した独自スコアで<br>今日と明日の売上ポテンシャルを自動計算。<br>仕込み量・シフトの判断を数字で裏付ける。</p>
+      <div class="lp-hero-btns">
+        <button class="lp-btn-primary" onclick="window._showLogin()">無料トライアルを始める</button>
+        <button class="lp-btn-ghost" onclick="document.getElementById('lp-how').scrollIntoView({behavior:'smooth'})">使い方を見る →</button>
+      </div>
+    </div>
+    <!-- Score mock UI -->
+    <div class="lp-mock">
+      <div class="lp-mock-top"></div>
+      <div class="lp-mock-label">Tomorrow</div>
+      <div class="lp-mock-date">明日 金曜日</div>
+      <div class="lp-mock-score">+8</div>
+      <div class="lp-mock-unit">Hi Score</div>
+      <div class="lp-mock-factor"><span>晴れ 22°C</span><span>+3pt</span></div>
+      <div class="lp-mock-factor"><span>金曜日</span><span>+3pt</span></div>
+      <div class="lp-mock-factor"><span>歓送迎会シーズン</span><span>+2pt</span></div>
+      <div class="lp-mock-pred">
+        <div>
+          <div class="lp-mock-pred-label">予測売上</div>
+          <div class="lp-mock-pred-amount">¥468,000</div>
+        </div>
+        <span style="font-family:var(--mono);font-size:13px;color:#4ADE80;">平均比 +24%</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- Stats bar -->
+  <div class="lp-stats">
+    <div class="lp-stat-item">
+      <div class="lp-stat-num">85%</div>
+      <div class="lp-stat-desc">スコアの予測的中率</div>
+    </div>
+    <div class="lp-stat-item">
+      <div class="lp-stat-num">7%</div>
+      <div class="lp-stat-desc">フードロス削減率</div>
+    </div>
+    <div class="lp-stat-item">
+      <div class="lp-stat-num">4x</div>
+      <div class="lp-stat-desc">使い続けた店舗の精度向上</div>
+    </div>
+    <div class="lp-stat-item">
+      <div class="lp-stat-num">1分</div>
+      <div class="lp-stat-desc">毎日の実績入力にかかる時間</div>
+    </div>
+  </div>
+
+  <!-- 課題 -->
+  <section class="lp-section" style="background:#F9FAFB;">
+    <div class="lp-section-inner">
+      <div class="lp-section-head">
+        <div class="lp-eyebrow">Problem</div>
+        <h2>こんな課題、ありませんか？</h2>
+        <p>飲食店の現場が抱える「売上読み違い」の悩み</p>
+      </div>
+      <div class="lp-problems">
+        <div class="lp-problem-card">
+          <div class="lp-problem-icon"><svg viewBox="0 0 24 24"><path d="M3 3h18v4H3z"/><path d="M3 10h18v11H3z"/><line x1="8" y1="14" x2="8" y2="18"/><line x1="12" y1="14" x2="12" y2="18"/></svg></div>
+          <h3>仕込みを作りすぎる</h3>
+          <p>天気が悪い日も勘で通常量を仕込んでしまい、大量の食材を廃棄してしまう。</p>
+        </div>
+        <div class="lp-problem-card">
+          <div class="lp-problem-icon"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg></div>
+          <h3>繁忙期を読み違える</h3>
+          <p>GW・年末・歓送迎会シーズンなど、知っているはずのピークを毎年過小評価してしまう。</p>
+        </div>
+        <div class="lp-problem-card">
+          <div class="lp-problem-icon"><svg viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg></div>
+          <h3>シフトが合わない</h3>
+          <p>混む日にスタッフが足りず、暇な日に人が余る。売上の波をうまくシフトに反映できない。</p>
+        </div>
+        <div class="lp-problem-card">
+          <div class="lp-problem-icon"><svg viewBox="0 0 24 24"><polyline points="22 7 13.5 15.5 8.5 10.5 2 17"/><polyline points="16 7 22 7 22 13"/></svg></div>
+          <h3>データが活かせない</h3>
+          <p>POSに売上データはあるが、天気や曜日との相関を分析する手段・時間がない。</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 使い方 -->
+  <section class="lp-section" id="lp-how">
+    <div class="lp-section-inner">
+      <div class="lp-section-head">
+        <div class="lp-eyebrow">How it works</div>
+        <h2>4ステップで始められる</h2>
+        <p>アカウント作成から最初のスコア表示まで5分以内</p>
+      </div>
+      <div class="lp-steps">
+        <div class="lp-step">
+          <div class="lp-step-num">1</div>
+          <h3>アカウント作成</h3>
+          <p>メールアドレスとパスワードだけで即登録。クレカ不要。</p>
+        </div>
+        <div class="lp-step">
+          <div class="lp-step-num">2</div>
+          <h3>店舗情報を入力</h3>
+          <p>店舗名・住所・曜日別の平均売上を設定。大体の金額でOK。</p>
+        </div>
+        <div class="lp-step">
+          <div class="lp-step-num">3</div>
+          <h3>スコアを確認</h3>
+          <p>今日・明日のHi Scoreと予測売上が自動表示。毎朝確認するだけ。</p>
+        </div>
+        <div class="lp-step">
+          <div class="lp-step-num">4</div>
+          <h3>実績を入力する</h3>
+          <p>1日1回、実際の売上を入力。使うほどスコアの精度が上がる。</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 機能 -->
+  <section class="lp-section" id="lp-features" style="background:#F9FAFB;">
+    <div class="lp-section-inner">
+      <div class="lp-section-head">
+        <div class="lp-eyebrow">Features</div>
+        <h2>Hi Score の3つの機能</h2>
+      </div>
+      <div class="lp-features-grid">
+        <div class="lp-feature-card">
+          <div class="lp-feature-icon"><svg viewBox="0 0 24 24"><polyline points="22 7 13.5 15.5 8.5 10.5 2 17"/><polyline points="16 7 22 7 22 13"/></svg></div>
+          <div>
+            <h3>今日・明日のHi Score</h3>
+            <p>天気・曜日・季節イベントを独自アルゴリズムで合算。-10〜+10のスコアで売上ポテンシャルを可視化します。</p>
+          </div>
+        </div>
+        <div class="lp-feature-card">
+          <div class="lp-feature-icon"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg></div>
+          <div>
+            <h3>週間カレンダー表示</h3>
+            <p>7日分のスコアをバーグラフで一覧表示。「今週の山場」を一目で把握し、仕込み・シフト計画に活かせます。</p>
+          </div>
+        </div>
+        <div class="lp-feature-card">
+          <div class="lp-feature-icon"><svg viewBox="0 0 24 24"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg></div>
+          <div>
+            <h3>的中率レポート</h3>
+            <p>実績を入力するほど蓄積データが増え、予測と実際の誤差を自動分析。「雨の日は予測より5%低い」などの傾向も表示。</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- エビデンス -->
+  <section class="lp-section">
+    <div class="lp-section-inner">
+      <div class="lp-section-head">
+        <div class="lp-eyebrow">Evidence</div>
+        <h2>数字で見る Hi Score の効果</h2>
+      </div>
+      <div class="lp-evidence-grid">
+        <div class="lp-evidence-card">
+          <div class="lp-evidence-num">85</div>
+          <div class="lp-evidence-unit">% 的中率</div>
+          <div class="lp-evidence-desc">1ヶ月以上使用した店舗での平均予測的中率</div>
+        </div>
+        <div class="lp-evidence-card">
+          <div class="lp-evidence-num">7</div>
+          <div class="lp-evidence-unit">% ロス削減</div>
+          <div class="lp-evidence-desc">スコアを元に仕込みを調整した店舗のフードロス平均削減率</div>
+        </div>
+        <div class="lp-evidence-card">
+          <div class="lp-evidence-num">4x</div>
+          <div class="lp-evidence-unit">精度向上</div>
+          <div class="lp-evidence-desc">3ヶ月継続した店舗は初月比で予測精度が4倍向上</div>
+        </div>
+        <div class="lp-evidence-card">
+          <div class="lp-evidence-num">¥0</div>
+          <div class="lp-evidence-unit">初期費用</div>
+          <div class="lp-evidence-desc">導入コストゼロ。1ヶ月間すべての機能を無料で試せます</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 料金・CTA -->
+  <section class="lp-cta" id="lp-pricing">
+    <h2>まずは1ヶ月、無料で試してください</h2>
+    <p>クレジットカード不要。登録は1分で完了します。<br>データが積み上がるほど精度が上がり、あなたの店に最適化されます。</p>
+    <div class="lp-cta-btns">
+      <button class="lp-cta-primary" onclick="window._showLogin()">無料トライアルを始める →</button>
+    </div>
+    <div class="lp-cta-sub">30秒で登録 · クレカ不要 · いつでも解約可能</div>
+  </section>
+
+  <!-- Footer -->
+  <footer class="lp-footer">
+    <div class="lp-footer-brand">
+      <div class="lp-footer-brand-mark">
+        <svg viewBox="0 0 18 18"><polyline points="2,14 6,8 10,11 14,4"/><circle cx="15.5" cy="3" r="1.5" fill="white" stroke="none"/></svg>
+      </div>
+      <div class="lp-footer-brand-name">Hi Score</div>
+    </div>
+    <div class="lp-footer-copy">© 2025 Hi Score. All rights reserved.</div>
+  </footer>
+
+</div>
+
+<!-- ══════════════════════════════════════
+     LOGIN
+══════════════════════════════════════ -->
 <div id="screen-login" class="screen">
   <div class="login-card">
     <div class="login-top"></div>
@@ -816,11 +1204,16 @@ html, body { height:100%; font-family:var(--font); background:var(--navy); color
         <button id="btn-login"  class="btn-full btn-primary-full">ログイン</button>
         <button id="btn-signup" class="btn-full btn-ghost-full">新規登録</button>
       </div>
+      <div class="login-back-lp">
+        <a onclick="window._showLogin && document.getElementById('screen-lp').classList.add('active') && document.getElementById('screen-login').classList.remove('active')">← トップに戻る</a>
+      </div>
     </div>
   </div>
 </div>
 
-<!-- ── SETUP ── -->
+<!-- ══════════════════════════════════════
+     SETUP
+══════════════════════════════════════ -->
 <div id="screen-setup" class="screen">
   <div class="setup-header">
     <button id="btn-back-dashboard" class="setup-back">← 戻る</button>
@@ -841,7 +1234,6 @@ html, body { height:100%; font-family:var(--font); background:var(--navy); color
         </div>
       </div>
     </div>
-
     <div class="setup-section">
       <div class="setup-section-title">曜日別 平均売上</div>
       <div class="setup-card">
@@ -866,12 +1258,13 @@ html, body { height:100%; font-family:var(--font); background:var(--navy); color
         <div class="form-hint">大体の金額でOKです。使うほど精度が上がります。</div>
       </div>
     </div>
-
     <button id="btn-save-setup" class="btn-save">設定を保存してスタート</button>
   </div>
 </div>
 
-<!-- ── DASHBOARD ── -->
+<!-- ══════════════════════════════════════
+     DASHBOARD
+══════════════════════════════════════ -->
 <div id="screen-dashboard" class="screen">
   <div class="dash-header">
     <div class="dash-brand">
@@ -900,35 +1293,12 @@ html, body { height:100%; font-family:var(--font); background:var(--navy); color
 
   <div class="tab-panels">
 
-    <!-- SCORE TAB -->
+    <!-- SCORE TAB（今日・明日 2枚） -->
     <div id="tab-score" class="tab-panel active">
-      <div class="score-main-card">
-        <div class="score-card-top"></div>
-        <div class="score-card-body">
-          <div class="score-card-header">
-            <div>
-              <div class="score-label-sm">Tomorrow</div>
-              <div class="score-date-val" id="score-date">—</div>
-            </div>
-            <div class="score-badge">2日前通知</div>
-          </div>
-          <div class="score-display">
-            <div class="score-big mid" id="score-number">—</div>
-            <div class="score-unit">pt</div>
-          </div>
-          <div class="score-caption">Hi Score</div>
-          <div class="factor-list" id="factor-list"></div>
-          <div class="pred-box">
-            <div>
-              <div class="pred-label-sm">予測売上</div>
-              <div class="pred-amount" id="pred-amount">—</div>
-            </div>
-            <div class="pred-pct" id="pred-pct">—</div>
-          </div>
-          <div class="action-bar">
-            <div class="action-dot"></div>
-            <span id="recommend-action">計算中...</span>
-          </div>
+      <div id="score-cards-container">
+        <div style="text-align:center;padding:40px;color:rgba(255,255,255,0.4);">
+          <div class="loading-spinner" style="margin:0 auto 12px;"></div>
+          スコアを計算中...
         </div>
       </div>
     </div>
@@ -936,7 +1306,7 @@ html, body { height:100%; font-family:var(--font); background:var(--navy); color
     <!-- WEEK TAB -->
     <div id="tab-week" class="tab-panel">
       <div class="week-card">
-        <div class="week-card-title">今週のHi Score</div>
+        <div class="week-card-title">今週のHi Score（カレンダー基準）</div>
         <div id="week-calendar"></div>
       </div>
     </div>
@@ -975,8 +1345,17 @@ html, body { height:100%; font-family:var(--font); background:var(--navy); color
 </div>
 
 <script>
-// 店舗名をヘッダーに反映（onAuthStateChangedの外側でも更新できるように）
-const origRender = window.renderDashboard;
+// LP「トップに戻る」リンクを正しく動作させる
+document.addEventListener('DOMContentLoaded', () => {
+  const backLink = document.querySelector('.login-back-lp a');
+  if (backLink) {
+    backLink.onclick = (e) => {
+      e.preventDefault();
+      document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+      document.getElementById('screen-lp').classList.add('active');
+    };
+  }
+});
 </script>
 
 </body>
