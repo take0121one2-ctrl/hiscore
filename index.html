@@ -73,8 +73,34 @@
     }
   }
 
+  // ─── 祝日キャッシュ ───
+  let _holidayCache = null;
+  async function fetchHolidays() {
+    if (_holidayCache) return _holidayCache;
+    try {
+      const res  = await fetch('https://holidays-jp.github.io/api/v1/date.json');
+      const data = await res.json();
+      _holidayCache = data; // { "2026-03-21": "春分の日", ... }
+      return _holidayCache;
+    } catch(e) {
+      return {};
+    }
+  }
+
+  function toDateKey(d) {
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${y}-${m}-${day}`;
+  }
+
+  function isWeekendOrHoliday(d, holidays) {
+    const dow = d.getDay();
+    return dow === 0 || dow === 6 || !!(holidays && holidays[toDateKey(d)]);
+  }
+
   // ─── CALENDAR SCORE ───
-  function getCalendarScore(date) {
+  async function getCalendarScore(date) {
     const d      = date || new Date(Date.now() + 86400000);
     const dow    = d.getDay();
     const month  = d.getMonth() + 1;
@@ -82,10 +108,47 @@
     let score = 0;
     let factors = [];
 
-    if (dow === 5)      { score += 3; factors.push({ label: '金曜日', pt: 3 }); }
-    else if (dow === 6) { score += 3; factors.push({ label: '土曜日', pt: 3 }); }
-    else if (dow === 0) { score += 2; factors.push({ label: '日曜日', pt: 2 }); }
+    // 祝日データ取得（失敗時は空オブジェクト）
+    const holidays = await fetchHolidays();
+    const dateKey  = toDateKey(d);
+    const isHoliday = !!(holidays[dateKey]);
 
+    // 前日・翌日
+    const prev = new Date(d.getTime() - 86400000);
+    const next = new Date(d.getTime() + 86400000);
+    const isPrevHolidayOrWeekend = isWeekendOrHoliday(prev, holidays);
+    const isNextHolidayOrWeekend = isWeekendOrHoliday(next, holidays);
+    const isNextHoliday = !!(holidays[toDateKey(next)]);
+
+    // ── 曜日・祝日スコア ──
+    if (isHoliday) {
+      // 土日と重なる場合も「祝日」として処理
+      score += 3;
+      factors.push({ label: `祝日（${holidays[dateKey]}）`, pt: 3 });
+    } else if (dow === 5) {
+      score += 3;
+      factors.push({ label: '金曜日', pt: 3 });
+    } else if (dow === 6) {
+      score += 3;
+      factors.push({ label: '土曜日', pt: 3 });
+    } else if (dow === 0) {
+      score += 2;
+      factors.push({ label: '日曜日', pt: 2 });
+    }
+
+    // ── 祝前日 ──
+    if (!isHoliday && isNextHoliday) {
+      score += 2;
+      factors.push({ label: '祝前日', pt: 2 });
+    }
+
+    // ── 連休中日（前後が休日で自分は平日） ──
+    if (!isHoliday && dow !== 0 && dow !== 6 && isPrevHolidayOrWeekend && isNextHolidayOrWeekend) {
+      score -= 1;
+      factors.push({ label: '連休中日', pt: -1 });
+    }
+
+    // ── 季節イベント ──
     if (month === 3 && day >= 20 && day <= 31)                     { score += 2; factors.push({ label: '花見シーズン', pt: 2 }); }
     if (month === 4 && day <= 10)                                   { score += 2; factors.push({ label: '花見シーズン', pt: 2 }); }
     if ((month === 4 && day >= 28) || (month === 5 && day <= 6))   { score += 3; factors.push({ label: 'GW', pt: 3 }); }
@@ -96,7 +159,7 @@
     if (month === 1  && day <= 3)                                   { score += 3; factors.push({ label: '正月', pt: 3 }); }
     if (month === 2  && day === 14)                                 { score += 2; factors.push({ label: 'バレンタイン', pt: 2 }); }
     if (month === 10 && day === 31)                                 { score += 2; factors.push({ label: 'ハロウィン', pt: 2 }); }
-    if ((month === 3 || month === 4 || month === 9 || month === 10) && dow === 5) {
+    if ((month === 3 || month === 4 || month === 9 || month === 10) && (dow === 5 || isHoliday)) {
       score += 1; factors.push({ label: '歓送迎会シーズン', pt: 1 });
     }
 
@@ -249,8 +312,10 @@
         fetchWeatherScore(storeData.lat, storeData.lon, today),
         fetchWeatherScore(storeData.lat, storeData.lon, tomorrow)
       ]);
-      const cToday    = getCalendarScore(today);
-      const cTomorrow = getCalendarScore(tomorrow);
+      const [cToday, cTomorrow] = await Promise.all([
+        getCalendarScore(today),
+        getCalendarScore(tomorrow)
+      ]);
 
       const scorePanel = document.getElementById('score-cards-container');
       if (scorePanel) {
@@ -259,7 +324,7 @@
           buildScoreCard('Tomorrow', tomorrow, wTomorrow, cTomorrow);
       }
 
-      renderWeekCalendar();
+      await renderWeekCalendar();
 
       const yesterday = new Date(Date.now() - 86400000);
       const resultLbl = document.getElementById('result-date-label');
@@ -275,11 +340,11 @@
     }
   }
 
-  function renderWeekCalendar() {
+  async function renderWeekCalendar() {
     const days = [];
     for (let i = 0; i <= 6; i++) {
       const d   = new Date(Date.now() + i * 86400000);
-      const cal = getCalendarScore(d);
+      const cal = await getCalendarScore(d);
       days.push({ date: d, score: cal.score, dow: '日月火水木金土'[d.getDay()] });
     }
     const maxScore = Math.max(...days.map(d => d.score), 1);
@@ -419,7 +484,7 @@
       if (!amount || amount < 0) { showToast('売上金額を入力してください', 'error'); return; }
       const yesterday   = new Date(Date.now() - 86400000);
       const dateStr     = yesterday.toISOString().slice(0, 10);
-      const cal         = getCalendarScore(yesterday);
+      const cal         = await getCalendarScore(yesterday);
       const wScore      = await fetchWeatherScore(storeData.lat, storeData.lon, yesterday);
       const total       = cal.score + wScore.score;
       const pred        = calcPrediction(total, storeData, yesterday);
