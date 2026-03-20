@@ -454,9 +454,9 @@
       el.innerHTML = `
         <div class="acc-empty">
           <div class="acc-empty-num">0日</div>
-          <div class="acc-empty-msg">売上を入力すると、あなたの店専用の予測に育ちます。<br>3日以上入力するとレポートが表示されます。</div>
+          <div class="acc-empty-msg">売上を入力すると、あなたの店専用の予測に育ちます。<br>3日分入力するとスタートします。</div>
           <div class="acc-progress-bar"><div class="acc-progress-fill" style="width:${Math.min((report?.days||0)/30*100,100)}%"></div></div>
-          <div class="acc-progress-label">${report?.days||0} / 30日分</div>
+          <div class="acc-progress-label">${report?.days||0} / 30日でフル精度</div>
         </div>`;
       return;
     }
@@ -472,7 +472,7 @@
         <div class="acc-trend-label">雨の日の売上傾向</div>
         <div class="acc-trend-val ${report.rainTrend >= 0 ? 'pos' : 'neg'}">予測との差 ${report.rainTrend >= 0 ? '+' : ''}${report.rainTrend}%</div>
       </div>` : ''}
-      <div class="acc-hint">売上を記録するほど、あなたの店専用の予測に育ちます</div>`;
+      <div class="acc-hint">毎日1回の入力で、どんどん賢くなります</div>`;
   }
 
   // ─── STORE SELECTOR ───
@@ -1293,7 +1293,7 @@ html, body { height:100%; font-family:var(--font); font-size:15px; background:va
         </div>
         <div class="lp-step">
           <div class="lp-step-num">4</div>
-          <h3>実績を入力する</h3>
+          <h3>今日の売上を入力する</h3>
           <p>1日1回、実際の売上を入力。使うほどスコアの精度が上がる。</p>
         </div>
       </div>
@@ -1325,8 +1325,8 @@ html, body { height:100%; font-family:var(--font); font-size:15px; background:va
         <div class="lp-feature-card">
           <div class="lp-feature-icon"><svg viewBox="0 0 24 24"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg></div>
           <div>
-            <h3>的中率レポート</h3>
-            <p>実績を入力するほど蓄積データが増え、予測と実際の誤差を自動分析。「雨の日は予測より5%低い」などの傾向も表示。</p>
+            <h3>予測精度レポート</h3>
+            <p>売上を入力するほど、あなたの店専用の予測に育ちます。雨の日の傾向など、自店のパターンを自動で学習します。</p>
           </div>
         </div>
       </div>
@@ -1337,7 +1337,7 @@ html, body { height:100%; font-family:var(--font); font-size:15px; background:va
   <section class="lp-section">
     <div class="lp-section-inner">
       <div class="lp-section-head">
-        <div class="lp-eyebrow">Evidence</div>
+        <div class="lp-eyebrow">Expected Benefits</div>
         <h2>Hi Score で変わること</h2>
       </div>
       <div class="lp-evidence-grid">
@@ -1376,7 +1376,7 @@ html, body { height:100%; font-family:var(--font); font-size:15px; background:va
   <!-- 料金・CTA -->
   <section class="lp-cta" id="lp-pricing">
     <h2>まずは1ヶ月、無料で試してください</h2>
-    <p>クレジットカード不要。登録は1分で完了します。<br>データが積み上がるほど精度が上がり、あなたの店に最適化されます。</p>
+    <p>クレジットカード不要。登録は1分で完了します。<br>売上を入力するほど、あなたの店専用の予測に育ちます。</p>
     <div class="lp-cta-btns">
       <button class="lp-cta-primary" onclick="window._showLogin()">無料トライアルを始める →</button>
     </div>
@@ -1497,7 +1497,7 @@ html, body { height:100%; font-family:var(--font); font-size:15px; background:va
             <input id="setup-sun" class="form-input" type="number" placeholder="例：350000">
           </div>
         </div>
-        <div class="form-hint">大体の金額でOKです。使うほど精度が上がります。</div>
+        <div class="form-hint">大体の金額でOKです。続けるほど予測の精度があがります。</div>
       </div>
     </div>
     <div class="setup-section">
@@ -1606,9 +1606,9 @@ html, body { height:100%; font-family:var(--font); font-size:15px; background:va
         <div id="accuracy-content">
           <div class="acc-empty">
             <div class="acc-empty-num">0日</div>
-            <div class="acc-empty-msg">売上を入力すると、あなたの店専用の予測に育ちます。<br>3日以上入力するとレポートが表示されます。</div>
+            <div class="acc-empty-msg">売上を入力すると、あなたの店専用の予測に育ちます。<br>3日分入力するとスタートします。</div>
             <div class="acc-progress-bar"><div class="acc-progress-fill" style="width:0%"></div></div>
-            <div class="acc-progress-label">0 / 30日分</div>
+            <div class="acc-progress-label">0 / 30日でフル精度</div>
           </div>
         </div>
       </div>
