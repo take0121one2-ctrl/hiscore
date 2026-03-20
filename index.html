@@ -1,3 +1,46 @@
+<!--
+Firestore Rules:
+
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /users/{uid} {
+      allow read: if request.auth.uid == uid;
+    }
+    match /companies/{companyId}/stores/{storeId} {
+      allow read, write: if
+        (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin'
+         && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.companyId == companyId)
+        ||
+        (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.storeId == storeId
+         && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.companyId == companyId);
+    }
+    match /companies/{companyId}/stores/{storeId}/results/{docId} {
+      allow read, write: if
+        (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin'
+         && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.companyId == companyId)
+        ||
+        (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.storeId == storeId
+         && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.companyId == companyId);
+    }
+  }
+}
+
+【アカウント発行手順】
+1. Firebase ConsoleでEmailアカウントを作成
+   例: shibuya@torikizoku.hiscore.app / pass1234
+
+2. FirestoreにユーザープロフィールをUID指定で作成
+   users/{uid} = { role: "store", companyId: "torikizoku", storeId: "{storeId}" }
+
+3. 店舗データを作成
+   companies/torikizoku/stores/{storeId} = {
+     settings: { name: "渋谷店", zipcode: "1500041", address: "東京都渋谷区",
+                 lat: 35.6580, lon: 139.7016, weekday: 280000, fri: 380000, sat: 420000, sun: 350000 }
+   }
+
+4. adminの場合: users/{uid} = { role: "admin", companyId: "torikizoku", storeId: null }
+-->
 <!DOCTYPE html>
 <html lang="ja">
 <head>
@@ -33,6 +76,7 @@
 
   // ─── STATE ───
   let currentUser    = null;
+  let userProfile    = null;  // { role, companyId, storeId }
   let storeData      = null;
   let currentView    = 'lp';
   let currentStoreId = null;
@@ -260,9 +304,11 @@
   }
 
   // ─── ACCURACY REPORT ───
-  async function calcAccuracyReport(uid) {
+  async function calcAccuracyReport() {
     try {
-      const q = query(collection(db, 'users', uid, 'stores', currentStoreId, 'results'), orderBy('date', 'desc'), limit(30));
+      const companyId = userProfile?.companyId;
+      if (!companyId || !currentStoreId) return null;
+      const q = query(collection(db, 'companies', companyId, 'stores', currentStoreId, 'results'), orderBy('date', 'desc'), limit(30));
       const snap = await getDocs(q);
       const records = [];
       snap.forEach(d => records.push(d.data()));
@@ -425,7 +471,7 @@
       const resultLbl = document.getElementById('result-date-label');
       if (resultLbl) resultLbl.textContent = formatDate(yesterday) + 'の実績売上';
 
-      const report = await calcAccuracyReport(currentUser.uid);
+      const report = await calcAccuracyReport();
       renderAccuracyReport(report);
 
       setLoading(null);
@@ -489,59 +535,137 @@
       <div class="acc-hint">毎日1回の入力で、どんどん賢くなります</div>`;
   }
 
-  // ─── STORE SELECTOR ───
-  function updateStoreSelector() {
-    const sel = document.getElementById('store-selector');
-    const namEl = document.getElementById('dash-store-name');
+  // ─── ADMIN HEADER / ROLE UI ───
+  function renderAdminHeader() {
+    const sel    = document.getElementById('store-selector');
+    const nameEl = document.getElementById('dash-store-name');
     if (!sel) return;
-    if (storeList.length <= 1) {
-      sel.style.display = 'none';
-      if (namEl) namEl.textContent = storeData?.name || '';
-    } else {
+    if (userProfile?.role === 'admin' && storeList.length > 1) {
       sel.style.display = 'block';
-      if (namEl) namEl.style.display = 'none';
+      if (nameEl) nameEl.style.display = 'none';
       sel.innerHTML = storeList.map(s =>
         `<option value="${s.id}" ${s.id === currentStoreId ? 'selected' : ''}>${s.name}</option>`
       ).join('');
+    } else {
+      sel.style.display = 'none';
+      if (nameEl) { nameEl.style.display = ''; nameEl.textContent = storeData?.name || ''; }
     }
   }
+
+  function applyRoleUI() {
+    const isAdmin = userProfile?.role === 'admin';
+    document.querySelectorAll('.admin-only').forEach(el => {
+      el.style.display = isAdmin ? '' : 'none';
+    });
+    const btnAdd = document.getElementById('btn-add-store');
+    if (btnAdd) btnAdd.style.display = isAdmin ? '' : 'none';
+  }
+
+  async function renderOverview() {
+    const el = document.getElementById('overview-cards');
+    if (!el) return;
+    el.innerHTML = '<div style="color:#94A3B8;font-size:13px;">読み込み中...</div>';
+    const today    = new Date();
+    const tomorrow = new Date(Date.now() + 86400000);
+    const cards = await Promise.all(storeList.map(async store => {
+      const [wToday, wTmrw] = await Promise.all([
+        fetchWeatherScore(store.lat, store.lon, today),
+        fetchWeatherScore(store.lat, store.lon, tomorrow)
+      ]);
+      const [cToday, cTmrw] = await Promise.all([
+        getCalendarScore(today),
+        getCalendarScore(tomorrow)
+      ]);
+      const totalToday = wToday.score + cToday.score;
+      const totalTmrw  = wTmrw.score  + cTmrw.score;
+      const cls = totalToday >= 5 ? '#22C55E' : totalToday >= 0 ? '#F59E0B' : '#EF4444';
+      return `
+        <div style="background:white;border:1.5px solid #E2E8F0;border-radius:16px;
+          padding:20px 24px;margin-bottom:12px;display:flex;align-items:center;
+          justify-content:space-between;box-shadow:0 2px 8px rgba(0,0,0,0.05);cursor:pointer;"
+          onclick="switchToStore('${store.id}')">
+          <div>
+            <div style="font-size:15px;font-weight:700;color:#0F172A;margin-bottom:4px;">${store.name}</div>
+            <div style="font-size:12px;color:#64748B;">${store.address || ''}</div>
+          </div>
+          <div style="text-align:right;">
+            <div style="font-family:'DM Mono',monospace;font-size:28px;font-weight:500;color:${cls};line-height:1;">
+              ${totalToday >= 0 ? '+' : ''}${totalToday}
+            </div>
+            <div style="font-size:10px;color:#94A3B8;letter-spacing:0.1em;margin-top:2px;">TODAY</div>
+            <div style="font-size:12px;color:#64748B;margin-top:4px;">明日 ${totalTmrw >= 0 ? '+' : ''}${totalTmrw}pt</div>
+          </div>
+        </div>`;
+    }));
+    el.innerHTML = cards.join('');
+  }
+
+  window.switchToStore = (storeId) => {
+    currentStoreId = storeId;
+    storeData = storeList.find(s => s.id === storeId);
+    const sel = document.getElementById('store-selector');
+    if (sel) sel.value = storeId;
+    document.querySelectorAll('.nav-tab').forEach(t => t.classList.remove('active'));
+    const scoreTab = document.querySelector('[data-tab="score"]');
+    if (scoreTab) scoreTab.classList.add('active');
+    document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+    const scorePanel = document.getElementById('tab-score');
+    if (scorePanel) scorePanel.classList.add('active');
+    renderDashboard();
+  };
 
   // ─── AUTH ───
   onAuthStateChanged(auth, async (user) => {
     if (user) {
       currentUser = user;
-      const storesSnap = await getDocs(collection(db, 'users', user.uid, 'stores'));
-      storeList = [];
-      storesSnap.forEach(d => {
-        const settings = d.data().settings;
-        if (settings) storeList.push({ id: d.id, ...settings });
-      });
-      // ── 旧データ移行：stores が空の場合、旧パスを確認 ──
-      if (storeList.length === 0) {
-        const oldSnap = await getDoc(doc(db, 'users', user.uid, 'settings', 'store'));
-        if (oldSnap.exists()) {
-          const oldData = oldSnap.data();
-          const storeRef = doc(collection(db, 'users', user.uid, 'stores'));
-          await setDoc(storeRef, { settings: oldData });
-          currentStoreId = storeRef.id;
-          storeData = { id: currentStoreId, ...oldData };
-          storeList = [storeData];
-          updateStoreSelector();
-          showScreen('dashboard');
-          renderDashboard();
-          return;
-        }
-        showScreen('setup');
+
+      // userプロフィール取得
+      const profileSnap = await getDoc(doc(db, 'users', user.uid));
+      if (!profileSnap.exists()) {
+        await signOut(auth);
+        showToast('アカウントが設定されていません。管理者にお問い合わせください。', 'error');
+        showScreen('login');
         return;
       }
 
-      currentStoreId = storeList[0].id;
-      storeData = storeList[0];
-      updateStoreSelector();
-      showScreen('dashboard');
-      renderDashboard();
+      userProfile = profileSnap.data();
+      const { role, companyId, storeId } = userProfile;
+
+      if (role === 'admin') {
+        const storesSnap = await getDocs(collection(db, 'companies', companyId, 'stores'));
+        storeList = [];
+        storesSnap.forEach(d => {
+          const s = d.data().settings;
+          if (s) storeList.push({ id: d.id, ...s });
+        });
+        if (storeList.length === 0) {
+          showScreen('setup');
+        } else {
+          currentStoreId = storeList[0].id;
+          storeData = storeList[0];
+          renderAdminHeader();
+          applyRoleUI();
+          showScreen('dashboard');
+          renderDashboard();
+        }
+      } else {
+        // store ロール
+        currentStoreId = storeId;
+        const storeDocSnap = await getDoc(doc(db, 'companies', companyId, 'stores', storeId));
+        if (!storeDocSnap.exists() || !storeDocSnap.data().settings) {
+          showScreen('setup');
+        } else {
+          storeData = { id: storeId, ...storeDocSnap.data().settings };
+          renderAdminHeader();
+          applyRoleUI();
+          showScreen('dashboard');
+          renderDashboard();
+        }
+      }
+
     } else {
       currentUser    = null;
+      userProfile    = null;
       storeData      = null;
       currentStoreId = null;
       storeList      = [];
@@ -627,21 +751,22 @@
         return;
       }
       setLoading('設定を保存中...');
-      const uid = currentUser.uid;
+      const companyId = userProfile?.companyId;
       const data = { name, address, zipcode, lat: geo.lat, lon: geo.lon, weekday, fri, sat, sun, createdAt: new Date().toISOString() };
       if (coefficients) data.coefficients = coefficients;
       if (currentStoreId) {
-        await setDoc(doc(db, 'users', uid, 'stores', currentStoreId), { settings: data });
+        await setDoc(doc(db, 'companies', companyId, 'stores', currentStoreId), { settings: data }, { merge: true });
         const idx = storeList.findIndex(s => s.id === currentStoreId);
         if (idx >= 0) storeList[idx] = { id: currentStoreId, ...data };
       } else {
-        const storeRef = doc(collection(db, 'users', uid, 'stores'));
+        const storeRef = doc(collection(db, 'companies', companyId, 'stores'));
         currentStoreId = storeRef.id;
         await setDoc(storeRef, { settings: data });
         storeList.push({ id: currentStoreId, ...data });
       }
       storeData = { id: currentStoreId, ...data };
-      updateStoreSelector();
+      renderAdminHeader();
+      applyRoleUI();
       setLoading(null);
       if (pasteRecords.length > 0) {
         showToast(`${data.name} の設定を保存しました（${pasteRecords.length}日分のデータを取り込みました）`, 'success');
@@ -664,7 +789,7 @@
       const pred        = calcPrediction(total, storeData, yesterday, wScore.score, window._holidays);
       setLoading('保存中...');
       const memo = document.getElementById('result-memo').value.trim();
-      await addDoc(collection(db, 'users', currentUser.uid, 'stores', currentStoreId, 'results'), {
+      await addDoc(collection(db, 'companies', userProfile.companyId, 'stores', currentStoreId, 'results'), {
         date: dateStr, actual: amount, predicted: pred ? pred.amount : null,
         scoreTotal: total, weatherLabel: wScore.label, dow: yesterday.getDay(),
         memo: memo || null,
@@ -674,7 +799,7 @@
       document.getElementById('result-amount').value = '';
       document.getElementById('result-memo').value = '';
       showToast('売上を保存しました', 'success');
-      const report = await calcAccuracyReport(currentUser.uid);
+      const report = await calcAccuracyReport();
       renderAccuracyReport(report);
     });
 
@@ -685,6 +810,7 @@
         tab.classList.add('active');
         document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
         document.getElementById(`tab-${tab.dataset.tab}`).classList.add('active');
+        if (tab.dataset.tab === 'overview') renderOverview();
       });
     });
 
@@ -1645,6 +1771,7 @@ html, body { height:100%; font-family:var(--font); font-size:15px; background:va
   </div>
 
   <div class="nav-tabs">
+    <button class="nav-tab admin-only" data-tab="overview" style="display:none;">全店舗</button>
     <button class="nav-tab active" data-tab="score">Hi Score</button>
     <button class="nav-tab" data-tab="week">週間</button>
     <button class="nav-tab" data-tab="result">売上入力</button>
@@ -1687,6 +1814,11 @@ html, body { height:100%; font-family:var(--font); font-size:15px; background:va
             placeholder="メモ（任意）例：近くで祭りがあった、雨で暇だった">
         </div>
       </div>
+    </div>
+
+    <!-- OVERVIEW TAB (admin only) -->
+    <div id="tab-overview" class="tab-panel admin-only" style="display:none;">
+      <div id="overview-cards"></div>
     </div>
 
     <!-- REPORT TAB -->
