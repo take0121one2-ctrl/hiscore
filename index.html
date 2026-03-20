@@ -825,19 +825,6 @@ html, body { height:100%; font-family:var(--font); font-size:15px; background:va
 .lp-mock-pred-label { font-size:10px; color:rgba(255,255,255,0.4); }
 .lp-mock-pred-amount { font-family:var(--mono); font-size:18px; font-weight:500; color:#fff; }
 
-/* Stats bar */
-.lp-stats {
-  display:flex; justify-content:center; gap:0;
-  background:#0F1922; padding:40px 40px;
-  flex-wrap:wrap;
-}
-.lp-stat-item {
-  flex:1; min-width:180px; text-align:center; padding:16px 24px;
-  border-right:1px solid rgba(255,255,255,0.08);
-}
-.lp-stat-item:last-child { border-right:none; }
-.lp-stat-num  { font-family:var(--mono); font-size:40px; font-weight:500; color:var(--accent); margin-bottom:6px; }
-.lp-stat-desc { font-size:13px; color:rgba(255,255,255,0.45); }
 
 /* Section common */
 .lp-section { padding:80px 40px; }
@@ -932,7 +919,6 @@ html, body { height:100%; font-family:var(--font); font-size:15px; background:va
   .lp-hero { padding:56px 20px 48px; gap:40px; }
   .lp-mock { width:100%; max-width:320px; }
   .lp-section { padding:56px 20px; }
-  .lp-stats { padding:32px 20px; }
   .lp-cta { padding:64px 20px; }
   .lp-footer { padding:24px 20px; }
 }
@@ -1242,25 +1228,6 @@ html, body { height:100%; font-family:var(--font); font-size:15px; background:va
     </div>
   </section>
 
-  <!-- Stats bar -->
-  <div class="lp-stats">
-    <div class="lp-stat-item">
-      <div class="lp-stat-num">85%</div>
-      <div class="lp-stat-desc">スコアの予測的中率</div>
-    </div>
-    <div class="lp-stat-item">
-      <div class="lp-stat-num">7%</div>
-      <div class="lp-stat-desc">フードロス削減率</div>
-    </div>
-    <div class="lp-stat-item">
-      <div class="lp-stat-num">4x</div>
-      <div class="lp-stat-desc">使い続けた店舗の精度向上</div>
-    </div>
-    <div class="lp-stat-item">
-      <div class="lp-stat-num">1分</div>
-      <div class="lp-stat-desc">毎日の実績入力にかかる時間</div>
-    </div>
-  </div>
 
   <!-- 課題 -->
   <section class="lp-section" style="background:#F9FAFB;">
