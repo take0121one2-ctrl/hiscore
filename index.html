@@ -166,8 +166,63 @@
     return { score, factors };
   }
 
+  // ─── PASTE DATA PARSER ───
+  function parsePastedData(text) {
+    const records = [];
+    const lines   = text.split('\n');
+    for (const raw of lines) {
+      const line = raw.trim();
+      if (!line) continue;
+      // 区切り文字（タブ・カンマ・複数スペース）で分割
+      const parts = line.split(/[\t,]+|\s{2,}|\s+(?=\d{4,})/).map(s => s.trim()).filter(Boolean);
+      if (parts.length < 2) continue;
+      // 日付候補: YYYY/MM/DD, YYYY-MM-DD, M/D, MM/DD
+      let dateObj = null;
+      for (const p of parts) {
+        const m1 = p.match(/^(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})$/);
+        if (m1) { dateObj = new Date(+m1[1], +m1[2]-1, +m1[3]); break; }
+        const m2 = p.match(/^(\d{1,2})\/(\d{1,2})$/);
+        if (m2) { const now = new Date(); dateObj = new Date(now.getFullYear(), +m2[1]-1, +m2[2]); break; }
+      }
+      // 金額候補: 数字のみ（カンマ除去）
+      let amount = null;
+      for (const p of parts) {
+        const n = parseInt(p.replace(/,/g, ''));
+        if (!isNaN(n) && n > 0) { amount = n; break; }
+      }
+      if (dateObj && !isNaN(dateObj.getTime()) && amount) {
+        records.push({ date: dateObj, amount, dow: dateObj.getDay() });
+      }
+    }
+    return records;
+  }
+
+  // ─── COEFFICIENTS CALC ───
+  function calculateCoefficients(records) {
+    if (!records.length) return null;
+    const byDow = { 0: [], 1: [], 2: [], 3: [], 4: [], 5: [], 6: [] };
+    records.forEach(r => byDow[r.dow].push(r.amount));
+    const avg = arr => arr.length ? Math.round(arr.reduce((s,v) => s+v, 0) / arr.length) : 0;
+    const weekdayVals = [...byDow[1], ...byDow[2], ...byDow[3], ...byDow[4]];
+    const weekdayAvg  = avg(weekdayVals);
+    const friAvg      = avg(byDow[5]);
+    const satAvg      = avg(byDow[6]);
+    const sunAvg      = avg(byDow[0]);
+    // 売上分布から晴れ系・雨系を推定
+    const sorted   = [...records].sort((a, b) => a.amount - b.amount);
+    const n        = sorted.length;
+    const cutLow   = Math.ceil(n * 0.3);
+    const cutHigh  = Math.floor(n * 0.7);
+    const rainVals  = sorted.slice(0, cutLow).map(r => r.amount);
+    const sunnyVals = sorted.slice(cutHigh).map(r => r.amount);
+    const allAvg    = avg(records.map(r => r.amount));
+    const rainRatio  = allAvg > 0 ? avg(rainVals)  / allAvg : 0.85;
+    const sunnyRatio = allAvg > 0 ? avg(sunnyVals) / allAvg : 1.15;
+    return { weekdayAvg, friAvg, satAvg, sunAvg, rainRatio, sunnyRatio };
+  }
+
   // ─── PREDICTION CALC ───
-  function calcPrediction(totalScore, sd, date) {
+  function calcPrediction(totalScore, sd, date, wScore) {
     const d   = date || new Date(Date.now() + 86400000);
     const dow = d.getDay();
     let base = 0;
@@ -176,9 +231,17 @@
     else if (dow === 5) base = sd.fri     || sd.weekday || 0;
     else                base = sd.weekday || 0;
     if (!base) return null;
-    const pct    = totalScore * 3;
+    let multiplier = 3; // デフォルト: 1pt = 3%
+    const coeff = sd.coefficients;
+    if (coeff) {
+      const ws = (wScore !== undefined && wScore !== null) ? wScore : 0;
+      const ratio = ws > 0 ? coeff.sunnyRatio : ws < 0 ? coeff.rainRatio : 1;
+      multiplier = Math.abs(ratio - 1) / 3 * 100;
+      if (multiplier < 1) multiplier = 1; // 最低1%/pt
+    }
+    const pct    = totalScore * multiplier;
     const amount = Math.round(base * (1 + pct / 100) / 1000) * 1000;
-    return { base, pct, amount };
+    return { base, pct: Math.round(pct), amount };
   }
 
   // ─── ACCURACY REPORT ───
@@ -249,7 +312,7 @@
   // ─── SCORE CARD HTML ───
   function buildScoreCard(label, date, wScore, cScore) {
     const total   = wScore.score + cScore.score;
-    const pred    = storeData ? calcPrediction(total, storeData, date) : null;
+    const pred    = storeData ? calcPrediction(total, storeData, date, wScore.score) : null;
     const dow     = '日月火水木金土'[date.getDay()];
     const dateStr = formatDate(date) + `（${dow}）`;
     const cls     = total >= 5 ? 'high' : total >= 0 ? 'mid' : 'low';
@@ -455,11 +518,29 @@
     document.getElementById('btn-save-setup').addEventListener('click', async () => {
       const name    = document.getElementById('setup-name').value.trim();
       const address = document.getElementById('setup-address').value.trim();
-      const weekday = parseInt(document.getElementById('setup-weekday').value) || 0;
-      const fri     = parseInt(document.getElementById('setup-fri').value) || 0;
-      const sat     = parseInt(document.getElementById('setup-sat').value) || 0;
-      const sun     = parseInt(document.getElementById('setup-sun').value) || 0;
+      let weekday = parseInt(document.getElementById('setup-weekday').value) || 0;
+      let fri     = parseInt(document.getElementById('setup-fri').value) || 0;
+      let sat     = parseInt(document.getElementById('setup-sat').value) || 0;
+      let sun     = parseInt(document.getElementById('setup-sun').value) || 0;
       if (!name || !address) { showToast('店舗名と住所を入力してください', 'error'); return; }
+
+      // コピペデータ解析
+      const pasteText  = document.getElementById('setup-paste-data').value.trim();
+      let pasteRecords = [];
+      let coefficients = null;
+      if (pasteText) {
+        pasteRecords = parsePastedData(pasteText);
+        if (pasteRecords.length > 0) {
+          coefficients = calculateCoefficients(pasteRecords);
+          if (coefficients) {
+            if (coefficients.weekdayAvg) { weekday = coefficients.weekdayAvg; document.getElementById('setup-weekday').value = weekday; }
+            if (coefficients.friAvg)     { fri     = coefficients.friAvg;     document.getElementById('setup-fri').value     = fri; }
+            if (coefficients.satAvg)     { sat     = coefficients.satAvg;     document.getElementById('setup-sat').value     = sat; }
+            if (coefficients.sunAvg)     { sun     = coefficients.sunAvg;     document.getElementById('setup-sun').value     = sun; }
+          }
+        }
+      }
+
       setLoading('住所を解析中...');
       const geo = await geocodeAddress(address);
       if (!geo) {
@@ -469,11 +550,16 @@
       }
       setLoading('設定を保存中...');
       const data = { name, address, lat: geo.lat, lon: geo.lon, weekday, fri, sat, sun, createdAt: new Date().toISOString() };
+      if (coefficients) data.coefficients = coefficients;
       await setDoc(doc(db, 'users', currentUser.uid, 'settings', 'store'), data);
       storeData = data;
       document.getElementById('dash-store-name').textContent = data.name || '';
       setLoading(null);
-      showToast('設定を保存しました', 'success');
+      if (pasteRecords.length > 0) {
+        showToast(`${pasteRecords.length}日分のデータを取り込みました`, 'success');
+      } else {
+        showToast('設定を保存しました', 'success');
+      }
       showScreen('dashboard');
       renderDashboard();
     });
@@ -487,7 +573,7 @@
       const cal         = await getCalendarScore(yesterday);
       const wScore      = await fetchWeatherScore(storeData.lat, storeData.lon, yesterday);
       const total       = cal.score + wScore.score;
-      const pred        = calcPrediction(total, storeData, yesterday);
+      const pred        = calcPrediction(total, storeData, yesterday, wScore.score);
       setLoading('保存中...');
       await addDoc(collection(db, 'users', currentUser.uid, 'results'), {
         date: dateStr, actual: amount, predicted: pred ? pred.amount : null,
@@ -1323,6 +1409,21 @@ html, body { height:100%; font-family:var(--font); background:var(--navy); color
         <div class="form-hint">大体の金額でOKです。使うほど精度が上がります。</div>
       </div>
     </div>
+    <div class="setup-section">
+      <div class="setup-section-title">先月の実績データ（任意）</div>
+      <div class="setup-card">
+        <div class="form-group">
+          <label class="form-label">先月の売上データを貼り付け（任意）</label>
+          <textarea id="setup-paste-data" class="form-input" rows="7" style="height:160px;resize:vertical;font-family:var(--mono);font-size:13px;line-height:1.7;" placeholder="日付と売上を1行ずつ貼り付けてください（Excelやメモ帳からそのままコピペOK）
+例：
+2026/02/01  285000
+2026/02/02  412000
+2026/02/03  198000"></textarea>
+          <div class="form-hint">曜日別平均・晴雨係数を自動算出し、予測精度が上がります。手入力欄は自動入力されます。</div>
+        </div>
+      </div>
+    </div>
+
     <button id="btn-save-setup" class="btn-save">設定を保存してスタート</button>
   </div>
 </div>
