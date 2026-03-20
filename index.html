@@ -776,8 +776,9 @@ html, body { height:100%; font-family:var(--font); font-size:15px; background:va
   gap:60px; padding:80px 40px 72px;
   background:linear-gradient(160deg,#F0F7FF 0%,#fff 65%);
   flex-wrap:wrap;
+  text-align:center; justify-items:center;
 }
-.lp-hero-text { max-width:520px; }
+.lp-hero-text { max-width:520px; align-items:center; display:flex; flex-direction:column; }
 .lp-hero-badge {
   display:inline-flex; align-items:center; gap:6px;
   background:#EFF6FF; border:1px solid #BFDBFE;
@@ -790,9 +791,9 @@ html, body { height:100%; font-family:var(--font); font-size:15px; background:va
 }
 .lp-hero h1 span { color:var(--primary); }
 .lp-hero p {
-  font-size:17px; color:#6B7280; line-height:1.85; margin-bottom:36px;
+  font-size:17px; color:#6B7280; line-height:1.85; margin:0 auto 36px;
 }
-.lp-hero-btns { display:flex; gap:12px; flex-wrap:wrap; }
+.lp-hero-btns { display:flex; gap:12px; flex-wrap:wrap; justify-content:center; }
 .lp-btn-primary {
   padding:15px 32px; background:var(--primary); color:#fff;
   border:none; border-radius:10px; font-family:var(--font);
@@ -878,13 +879,17 @@ html, body { height:100%; font-family:var(--font); font-size:15px; background:va
 .lp-feature-card p  { font-size:14px; color:#6B7280; line-height:1.75; }
 
 /* Evidence */
-.lp-evidence-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(200px,1fr)); gap:20px; }
+.lp-evidence-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:20px; }
 .lp-evidence-card {
-  background:#fff; border:1px solid #E5E7EB; border-radius:16px; padding:28px 24px; text-align:center;
+  background:#fff; border:1px solid #E5E7EB; border-radius:16px; padding:28px 24px;
 }
-.lp-evidence-num  { font-family:var(--mono); font-size:40px; font-weight:500; color:var(--primary); margin-bottom:6px; }
-.lp-evidence-unit { font-size:13px; font-weight:700; color:var(--primary); margin-bottom:8px; }
-.lp-evidence-desc { font-size:13px; color:#6B7280; line-height:1.7; }
+.lp-evidence-icon {
+  width:44px; height:44px; background:#EFF6FF; border-radius:10px;
+  display:flex; align-items:center; justify-content:center; margin-bottom:16px;
+}
+.lp-evidence-icon svg { width:22px; height:22px; stroke:var(--primary); fill:none; stroke-width:2; stroke-linecap:round; stroke-linejoin:round; }
+.lp-evidence-title { font-size:15px; font-weight:700; color:#0F1922; margin-bottom:8px; line-height:1.4; }
+.lp-evidence-desc { font-size:13px; color:#6B7280; line-height:1.75; }
 
 /* CTA section */
 .lp-cta {
@@ -1333,28 +1338,36 @@ html, body { height:100%; font-family:var(--font); font-size:15px; background:va
     <div class="lp-section-inner">
       <div class="lp-section-head">
         <div class="lp-eyebrow">Evidence</div>
-        <h2>数字で見る Hi Score の効果</h2>
+        <h2>Hi Score で変わること</h2>
       </div>
       <div class="lp-evidence-grid">
         <div class="lp-evidence-card">
-          <div class="lp-evidence-num">85</div>
-          <div class="lp-evidence-unit">% 的中率</div>
-          <div class="lp-evidence-desc">1ヶ月以上使用した店舗での平均予測的中率</div>
+          <div class="lp-evidence-icon">
+            <svg viewBox="0 0 24 24"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+          </div>
+          <div class="lp-evidence-title">仕込みの判断に根拠が生まれる</div>
+          <div class="lp-evidence-desc">「なんとなく多め」から卒業。スコアをもとに仕込み量を決められる。</div>
         </div>
         <div class="lp-evidence-card">
-          <div class="lp-evidence-num">7</div>
-          <div class="lp-evidence-unit">% ロス削減</div>
-          <div class="lp-evidence-desc">スコアを元に仕込みを調整した店舗のフードロス平均削減率</div>
+          <div class="lp-evidence-icon">
+            <svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+          </div>
+          <div class="lp-evidence-title">シフトの無駄がなくなる</div>
+          <div class="lp-evidence-desc">閑散日を事前に把握してスタッフを適切に配置。人件費のムダを減らせる。</div>
         </div>
         <div class="lp-evidence-card">
-          <div class="lp-evidence-num">4x</div>
-          <div class="lp-evidence-unit">精度向上</div>
-          <div class="lp-evidence-desc">3ヶ月継続した店舗は初月比で予測精度が4倍向上</div>
+          <div class="lp-evidence-icon">
+            <svg viewBox="0 0 24 24"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/></svg>
+          </div>
+          <div class="lp-evidence-title">使うほど予測が自分の店に育つ</div>
+          <div class="lp-evidence-desc">売上を入力し続けることで、あなたの店専用のスコアに進化していく。</div>
         </div>
         <div class="lp-evidence-card">
-          <div class="lp-evidence-num">¥0</div>
-          <div class="lp-evidence-unit">初期費用</div>
-          <div class="lp-evidence-desc">導入コストゼロ。1ヶ月間すべての機能を無料で試せます</div>
+          <div class="lp-evidence-icon">
+            <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+          </div>
+          <div class="lp-evidence-title">毎日1分で完結する</div>
+          <div class="lp-evidence-desc">勤務終わりに売上を入力するだけ。難しい操作は一切ない。</div>
         </div>
       </div>
     </div>
