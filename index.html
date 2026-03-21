@@ -145,6 +145,20 @@ service cloud.firestore {
     return dow === 0 || dow === 6 || !!(holidays && holidays[toDateKey(d)]);
   }
 
+  // 第N週の特定曜日の日付を返す（month: 1-12, weekday: 0=日〜6=土, n: 1始まり）
+  function getNthWeekday(year, month, weekday, n) {
+    let count = 0;
+    for (let d = 1; d <= 31; d++) {
+      const date = new Date(year, month - 1, d);
+      if (date.getMonth() !== month - 1) break;
+      if (date.getDay() === weekday) {
+        count++;
+        if (count === n) return d;
+      }
+    }
+    return -1;
+  }
+
   // ─── CALENDAR SCORE ───
   async function getCalendarScore(date) {
     const d      = date || new Date(Date.now() + 86400000);
@@ -195,16 +209,52 @@ service cloud.firestore {
     }
 
     // ── 季節イベント ──
-    if (month === 3 && day >= 20 && day <= 31)                     { score += 2; factors.push({ label: '花見シーズン', pt: 2 }); }
-    if (month === 4 && day <= 10)                                   { score += 2; factors.push({ label: '花見シーズン', pt: 2 }); }
-    if ((month === 4 && day >= 28) || (month === 5 && day <= 6))   { score += 3; factors.push({ label: 'GW', pt: 3 }); }
-    if (month === 7 || month === 8)                                 { score += 1; factors.push({ label: '夏季シーズン', pt: 1 }); }
-    if (month === 12 && day >= 20)                                  { score += 2; factors.push({ label: '年末シーズン', pt: 2 }); }
-    if (month === 12 && day === 24)                                 { score += 3; factors.push({ label: 'クリスマスイブ', pt: 3 }); }
-    if (month === 12 && day === 31)                                 { score += 3; factors.push({ label: '大晦日', pt: 3 }); }
-    if (month === 1  && day <= 3)                                   { score += 3; factors.push({ label: '正月', pt: 3 }); }
-    if (month === 2  && day === 14)                                 { score += 2; factors.push({ label: 'バレンタイン', pt: 2 }); }
-    if (month === 10 && day === 31)                                 { score += 2; factors.push({ label: 'ハロウィン', pt: 2 }); }
+    // 花見
+    if (month === 3 && day >= 20 && day <= 31)                   { score += 2; factors.push({ label: '花見シーズン', pt: 2 }); }
+    if (month === 4 && day <= 10)                                 { score += 2; factors.push({ label: '花見シーズン', pt: 2 }); }
+
+    // GW
+    if ((month === 4 && day >= 28) || (month === 5 && day <= 6)) { score += 3; factors.push({ label: 'GW', pt: 3 }); }
+
+    // 母の日（5月第2日曜）
+    const motherDay = getNthWeekday(d.getFullYear(), 5, 0, 2);
+    if (month === 5 && day === motherDay)                         { score += 2; factors.push({ label: '母の日', pt: 2 }); }
+
+    // 父の日（6月第3日曜）
+    const fatherDay = getNthWeekday(d.getFullYear(), 6, 0, 3);
+    if (month === 6 && day === fatherDay)                         { score += 1; factors.push({ label: '父の日', pt: 1 }); }
+
+    // 七夕
+    if (month === 7 && day === 7)                                 { score += 1; factors.push({ label: '七夕', pt: 1 }); }
+
+    // 夏季（お盆除く）
+    if ((month === 7 && day <= 12) || (month === 8 && (day < 13 || day > 16))) { score += 1; factors.push({ label: '夏季シーズン', pt: 1 }); }
+
+    // お盆（飲食は閑散）
+    if (month === 8 && day >= 13 && day <= 16)                   { score -= 2; factors.push({ label: 'お盆', pt: -2 }); }
+
+    // ハロウィン
+    if (month === 10 && day === 31)                               { score += 2; factors.push({ label: 'ハロウィン', pt: 2 }); }
+
+    // 忘年会シーズン
+    if (month === 12 && day >= 1 && day <= 19)                   { score += 2; factors.push({ label: '忘年会シーズン', pt: 2 }); }
+
+    // 年末
+    if (month === 12 && day >= 20 && day <= 23)                  { score += 2; factors.push({ label: '年末シーズン', pt: 2 }); }
+    if (month === 12 && day === 24)                               { score += 3; factors.push({ label: 'クリスマスイブ', pt: 3 }); }
+    if (month === 12 && day === 31)                               { score += 3; factors.push({ label: '大晦日', pt: 3 }); }
+
+    // 正月・新年会
+    if (month === 1 && day <= 3)                                  { score += 3; factors.push({ label: '正月', pt: 3 }); }
+    if (month === 1 && day >= 4 && day <= 14)                    { score += 1; factors.push({ label: '新年会シーズン', pt: 1 }); }
+
+    // バレンタイン
+    if (month === 2 && day === 14)                                { score += 2; factors.push({ label: 'バレンタイン', pt: 2 }); }
+
+    // ひな祭り
+    if (month === 3 && day === 3)                                 { score += 1; factors.push({ label: 'ひな祭り', pt: 1 }); }
+
+    // 歓送迎会シーズン（3・4・9・10月の金曜または祝日）
     if ((month === 3 || month === 4 || month === 9 || month === 10) && (dow === 5 || isHoliday)) {
       score += 1; factors.push({ label: '歓送迎会シーズン', pt: 1 });
     }
@@ -816,12 +866,13 @@ service cloud.firestore {
       try {
         const yesterday = new Date(Date.now() - 86400000);
         const dateStr   = yesterday.toISOString().slice(0, 10);
-        const cal       = await getCalendarScore(yesterday);
-        const wScore    = await fetchWeatherScore(storeData.lat, storeData.lon, yesterday);
-        const total     = cal.score + wScore.score;
-        const pred      = calcPrediction(total, storeData, yesterday, wScore.score, window._holidays);
-        const memo      = document.getElementById('result-memo')?.value.trim() || null;
-        const companyId = userProfile?.companyId || currentUser.uid;
+        const cal        = await getCalendarScore(yesterday);
+        const wScore     = await fetchWeatherScore(storeData.lat, storeData.lon, yesterday);
+        const eventScore = parseInt(document.getElementById('result-event')?.value || '0');
+        const total      = cal.score + wScore.score + eventScore;
+        const pred       = calcPrediction(total, storeData, yesterday, wScore.score, window._holidays);
+        const memo       = document.getElementById('result-memo')?.value.trim() || null;
+        const companyId  = userProfile?.companyId || currentUser.uid;
         await addDoc(
           collection(db, 'companies', companyId, 'stores', currentStoreId, 'results'),
           {
@@ -831,12 +882,14 @@ service cloud.firestore {
             scoreTotal: total,
             weatherLabel: wScore.label,
             dow: yesterday.getDay(),
+            eventScore: eventScore,
             memo: memo || null,
             createdAt: new Date().toISOString()
           }
         );
         document.getElementById('result-amount').value = '';
         if (document.getElementById('result-memo')) document.getElementById('result-memo').value = '';
+        if (document.getElementById('result-event')) document.getElementById('result-event').value = '0';
         setLoading(null);
         showToast('売上を保存しました', 'success');
         try {
@@ -1862,6 +1915,18 @@ html, body { height:100%; font-family:var(--font); font-size:15px; background:va
           <button id="btn-save-result" class="btn-result-save">保存</button>
         </div>
         <div class="result-hint">閉店後に入力するだけ。記録が増えるほど、あなたの店専用の予測に育ちます。</div>
+        <div class="form-group" style="margin-top:16px;">
+          <label class="form-label">近隣イベント（任意）</label>
+          <select id="result-event" class="form-input" style="max-width:240px;">
+            <option value="0">なし</option>
+            <option value="3">大型コンサート・フェス（+3pt）</option>
+            <option value="2">地域祭り・花火大会（+2pt）</option>
+            <option value="2">スポーツ観戦（+2pt）</option>
+            <option value="1">小規模イベント（+1pt）</option>
+            <option value="-2">近隣道路工事・通行止め（-2pt）</option>
+            <option value="-1">悪天候以外の特別閑散（-1pt）</option>
+          </select>
+        </div>
         <div class="form-group" style="margin-top:12px">
           <input id="result-memo" class="form-input" type="text"
             placeholder="メモ（任意）例：近くで祭りがあった、雨で暇だった">
