@@ -160,7 +160,7 @@ service cloud.firestore {
   }
 
   // ─── CALENDAR SCORE ───
-  async function getCalendarScore(date) {
+  async function getCalendarScore(date, storePattern = 'standard') {
     const d      = date || new Date(Date.now() + 86400000);
     const dow    = d.getDay();
     const month  = d.getMonth() + 1;
@@ -180,20 +180,24 @@ service cloud.firestore {
     const isNextHolidayOrWeekend = isWeekendOrHoliday(next, holidays);
     const isNextHoliday = !!(holidays[toDateKey(next)]);
 
-    // ── 曜日・祝日スコア ──
+    // ── 曜日・祝日スコア（店舗タイプ補正付き） ──
+    const isOffice  = storePattern === 'office';
+    const isTourist = storePattern === 'tourist';
+
     if (isHoliday) {
-      // 土日と重なる場合も「祝日」として処理
-      score += 3;
-      factors.push({ label: `祝日（${holidays[dateKey]}）`, pt: 3 });
+      const pt = isOffice ? 1 : isTourist ? 4 : 3;
+      score += pt; factors.push({ label: `祝日（${holidays[dateKey]}）`, pt });
     } else if (dow === 5) {
-      score += 3;
-      factors.push({ label: '金曜日', pt: 3 });
+      const pt = isOffice ? 4 : isTourist ? 3 : 3;
+      score += pt; factors.push({ label: '金曜日', pt });
     } else if (dow === 6) {
-      score += 3;
-      factors.push({ label: '土曜日', pt: 3 });
+      const pt = isOffice ? -1 : isTourist ? 4 : 3;
+      score += pt; factors.push({ label: '土曜日', pt });
     } else if (dow === 0) {
-      score += 2;
-      factors.push({ label: '日曜日', pt: 2 });
+      const pt = isOffice ? -2 : isTourist ? 3 : 2;
+      score += pt; factors.push({ label: '日曜日', pt });
+    } else {
+      if (isOffice) { score += 1; factors.push({ label: '平日（オフィス街）', pt: 1 }); }
     }
 
     // ── 祝前日 ──
@@ -209,9 +213,15 @@ service cloud.firestore {
     }
 
     // ── 季節イベント ──
-    // 花見
-    if (month === 3 && day >= 20 && day <= 31)                   { score += 2; factors.push({ label: '花見シーズン', pt: 2 }); }
-    if (month === 4 && day <= 10)                                 { score += 2; factors.push({ label: '花見シーズン', pt: 2 }); }
+    // 花見補正（観光街は強め）
+    if (month === 3 && day >= 20 && day <= 31) {
+      const pt = isTourist ? 3 : 2;
+      score += pt; factors.push({ label: '花見シーズン', pt });
+    }
+    if (month === 4 && day <= 10) {
+      const pt = isTourist ? 3 : 2;
+      score += pt; factors.push({ label: '花見シーズン', pt });
+    }
 
     // GW
     if ((month === 4 && day >= 28) || (month === 5 && day <= 6)) { score += 3; factors.push({ label: 'GW', pt: 3 }); }
@@ -230,8 +240,11 @@ service cloud.firestore {
     // 夏季（お盆除く）
     if ((month === 7 && day <= 12) || (month === 8 && (day < 13 || day > 16))) { score += 1; factors.push({ label: '夏季シーズン', pt: 1 }); }
 
-    // お盆（飲食は閑散）
-    if (month === 8 && day >= 13 && day <= 16)                   { score -= 2; factors.push({ label: 'お盆', pt: -2 }); }
+    // お盆補正（オフィス街はさらに低い）
+    if (month === 8 && day >= 13 && day <= 16) {
+      const pt = isOffice ? -3 : -2;
+      score += pt; factors.push({ label: 'お盆', pt });
+    }
 
     // ハロウィン
     if (month === 10 && day === 31)                               { score += 2; factors.push({ label: 'ハロウィン', pt: 2 }); }
@@ -264,8 +277,9 @@ service cloud.firestore {
 
   // ─── PASTE DATA PARSER ───
   function parsePastedData(text) {
-    const records = [];
-    const lines   = text.split('\n');
+    const records  = [];
+    const MAX_LINES = 1000;
+    const lines    = text.split('\n').slice(0, MAX_LINES);
     for (const raw of lines) {
       const line = raw.trim();
       if (!line) continue;
@@ -276,15 +290,21 @@ service cloud.firestore {
       let dateObj = null;
       for (const p of parts) {
         const m1 = p.match(/^(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})$/);
-        if (m1) { dateObj = new Date(+m1[1], +m1[2]-1, +m1[3]); break; }
+        if (m1) {
+          const y = +m1[1];
+          if (y >= 2000 && y <= 2030) {
+            dateObj = new Date(y, +m1[2]-1, +m1[3]);
+          }
+          break;
+        }
         const m2 = p.match(/^(\d{1,2})\/(\d{1,2})$/);
         if (m2) { const now = new Date(); dateObj = new Date(now.getFullYear(), +m2[1]-1, +m2[2]); break; }
       }
-      // 金額候補: 10000以上の数値（カンマ・円記号除去）
+      // 金額候補: 10000以上100000000以下の数値（カンマ・円記号除去）
       let amount = null;
       for (const p of parts) {
         const n = parseInt(p.replace(/,/g, '').replace(/円/g, ''));
-        if (!isNaN(n) && n >= 10000) { amount = n; break; }
+        if (!isNaN(n) && n >= 10000 && n <= 100000000) { amount = n; break; }
       }
       if (dateObj && !isNaN(dateObj.getTime()) && amount) {
         records.push({ date: dateObj, amount, dow: dateObj.getDay() });
@@ -304,9 +324,14 @@ service cloud.firestore {
     const friAvg      = avg(byDow[5]);
     const satAvg      = avg(byDow[6]);
     const sunAvg      = avg(byDow[0]);
+    const n = records.length;
+    if (n < 3) {
+      return { weekdayAvg, friAvg, satAvg, sunAvg,
+               rainRatio: 0.85, sunnyRatio: 1.15,
+               storePattern: 'standard', patternLabel: '', patternNote: '' };
+    }
     // 売上分布から晴れ系・雨系を推定
     const sorted   = [...records].sort((a, b) => a.amount - b.amount);
-    const n        = sorted.length;
     const cutLow   = Math.ceil(n * 0.3);
     const cutHigh  = Math.floor(n * 0.7);
     const rainVals  = sorted.slice(0, cutLow).map(r => r.amount);
@@ -314,7 +339,32 @@ service cloud.firestore {
     const allAvg    = avg(records.map(r => r.amount));
     const rainRatio  = allAvg > 0 ? avg(rainVals)  / allAvg : 0.85;
     const sunnyRatio = allAvg > 0 ? avg(sunnyVals) / allAvg : 1.15;
-    return { weekdayAvg, friAvg, satAvg, sunAvg, rainRatio, sunnyRatio };
+
+    // ── 店舗傾向の自動判定 ──
+    const weekendAvg     = avg([...byDow[0], ...byDow[6]]);
+    const weekdayOnlyAvg = avg(weekdayVals);
+    let storePattern = 'standard';
+    let patternLabel = '';
+    let patternNote  = '';
+
+    if (weekdayOnlyAvg > 0 && weekendAvg > 0) {
+      const ratio = weekendAvg / weekdayOnlyAvg;
+      if (ratio < 0.80) {
+        storePattern = 'office';
+        patternLabel = 'オフィス街・サラリーマン型';
+        patternNote  = '平日の需要が高く、土日祝は売上が下がる傾向があります。スコアを実態に合わせて補正しました。';
+      } else if (ratio > 1.25) {
+        storePattern = 'tourist';
+        patternLabel = '観光地・繁華街型';
+        patternNote  = '土日の集客が強い傾向があります。週末・イベントのスコアを強めに補正しました。';
+      } else {
+        storePattern = 'standard';
+        patternLabel = '標準型';
+        patternNote  = '平日・週末ともにバランスの良い売上傾向です。';
+      }
+    }
+
+    return { weekdayAvg, friAvg, satAvg, sunAvg, rainRatio, sunnyRatio, storePattern, patternLabel, patternNote };
   }
 
   // ─── PREDICTION CALC ───
@@ -507,9 +557,10 @@ service cloud.firestore {
         fetchWeatherScore(storeData.lat, storeData.lon, today),
         fetchWeatherScore(storeData.lat, storeData.lon, tomorrow)
       ]);
+      const pattern = storeData?.coefficients?.storePattern || 'standard';
       const [cToday, cTomorrow] = await Promise.all([
-        getCalendarScore(today),
-        getCalendarScore(tomorrow)
+        getCalendarScore(today, pattern),
+        getCalendarScore(tomorrow, pattern)
       ]);
 
       const scorePanel = document.getElementById('score-cards-container');
@@ -537,9 +588,10 @@ service cloud.firestore {
 
   async function renderWeekCalendar() {
     const days = [];
+    const pattern = storeData?.coefficients?.storePattern || 'standard';
     for (let i = 0; i <= 6; i++) {
       const d   = new Date(Date.now() + i * 86400000);
-      const cal = await getCalendarScore(d);
+      const cal = await getCalendarScore(d, pattern);
       days.push({ date: d, score: cal.score, dow: '日月火水木金土'[d.getDay()] });
     }
     const maxScore = Math.max(...days.map(d => d.score), 1);
@@ -626,9 +678,10 @@ service cloud.firestore {
         fetchWeatherScore(store.lat, store.lon, today),
         fetchWeatherScore(store.lat, store.lon, tomorrow)
       ]);
+      const storePattern = store?.coefficients?.storePattern || 'standard';
       const [cToday, cTmrw] = await Promise.all([
-        getCalendarScore(today),
-        getCalendarScore(tomorrow)
+        getCalendarScore(today, storePattern),
+        getCalendarScore(tomorrow, storePattern)
       ]);
       const totalToday = wToday.score + cToday.score;
       const totalTmrw  = wTmrw.score  + cTmrw.score;
@@ -807,6 +860,23 @@ service cloud.firestore {
               if (!sat     && coefficients.satAvg)     { sat     = coefficients.satAvg;     document.getElementById('setup-sat').value     = sat; }
               if (!sun     && coefficients.sunAvg)     { sun     = coefficients.sunAvg;     document.getElementById('setup-sun').value     = sun; }
             }
+            if (coefficients) {
+              const fb = document.getElementById('paste-feedback');
+              if (fb) {
+                const lines = [
+                  `✅ ${pasteRecords.length}日分のデータを読み込みました`,
+                  coefficients.patternLabel ? `📊 店舗タイプ：${coefficients.patternLabel}` : '',
+                  coefficients.patternNote  ? `💡 ${coefficients.patternNote}` : '',
+                  pasteRecords.length >= 90
+                    ? `🎯 90日以上のデータが揃っており、高精度な予測が可能です`
+                    : pasteRecords.length >= 30
+                    ? `📈 30日以上のデータがあります。さらに過去データを追加するとより正確になります`
+                    : `⚠️ データが${pasteRecords.length}日分です。30日以上入力するとより正確な予測ができます`,
+                ].filter(Boolean);
+                fb.innerHTML = lines.join('<br>');
+                fb.style.display = 'block';
+              }
+            }
           }
         }
 
@@ -848,6 +918,8 @@ service cloud.firestore {
         } else {
           showToast(`${data.name} の設定を保存しました`, 'success');
         }
+        const fb = document.getElementById('paste-feedback');
+        if (fb) fb.style.display = 'none';
         showScreen('dashboard');
         renderDashboard();
       } catch(e) {
@@ -866,7 +938,8 @@ service cloud.firestore {
       try {
         const yesterday = new Date(Date.now() - 86400000);
         const dateStr   = yesterday.toISOString().slice(0, 10);
-        const cal        = await getCalendarScore(yesterday);
+        const pattern    = storeData?.coefficients?.storePattern || 'standard';
+        const cal        = await getCalendarScore(yesterday, pattern);
         const wScore     = await fetchWeatherScore(storeData.lat, storeData.lon, yesterday);
         const eventScore = parseInt(document.getElementById('result-event')?.value || '0');
         const total      = cal.score + wScore.score + eventScore;
@@ -977,6 +1050,11 @@ service cloud.firestore {
       let v = e.target.value.replace(/[^0-9]/g, '');
       if (v.length > 3) v = v.slice(0, 3) + '-' + v.slice(3, 7);
       e.target.value = v;
+    });
+
+    document.getElementById('setup-paste-data').addEventListener('input', () => {
+      const fb = document.getElementById('paste-feedback');
+      if (fb) fb.style.display = 'none';
     });
 
     document.getElementById('store-selector').addEventListener('change', async (e) => {
@@ -1834,6 +1912,12 @@ html, body { height:100%; font-family:var(--font); font-size:15px; background:va
 2026/02/02  412000
 2026/02/03  198000"></textarea>
           <div class="form-hint">曜日別平均・晴雨係数を自動算出し、予測精度が上がります。手入力欄は自動入力されます。</div>
+          <div id="paste-feedback" style="
+            display:none; margin-top:12px; padding:14px 16px;
+            background:#F0FDF4; border:1.5px solid #86EFAC;
+            border-radius:10px; font-size:13px; color:#166534;
+            line-height:1.7;
+          "></div>
         </div>
       </div>
     </div>
