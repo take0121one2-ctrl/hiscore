@@ -796,7 +796,14 @@ service cloud.firestore {
   });
 
   // ─── LP → LOGIN BRIDGE ───
-  window._showLogin = () => showScreen('login');
+  window._showLogin = () => {
+    showScreen('login');
+    if (window.switchAuthMode) switchAuthMode('login');
+  };
+  window._showSignup = () => {
+    showScreen('login');
+    if (window.switchAuthMode) switchAuthMode('signup');
+  };
 
   // ─── EVENT HANDLERS ───
   window.addEventListener('DOMContentLoaded', () => {
@@ -1079,6 +1086,47 @@ service cloud.firestore {
       });
     }
   });
+
+  // ── 認証モード切り替え ──
+  window._authMode = 'signup';
+
+  window.switchAuthMode = function(mode) {
+    window._authMode = mode;
+    const isSignup = mode === 'signup';
+
+    const tabSignup = document.getElementById('tab-signup');
+    const tabLogin  = document.getElementById('tab-login');
+    if (tabSignup) {
+      tabSignup.style.color        = isSignup ? 'var(--primary)' : '#94A3B8';
+      tabSignup.style.fontWeight   = isSignup ? '700' : '600';
+      tabSignup.style.borderBottom = isSignup ? '2px solid var(--primary)' : '2px solid transparent';
+    }
+    if (tabLogin) {
+      tabLogin.style.color        = !isSignup ? 'var(--primary)' : '#94A3B8';
+      tabLogin.style.fontWeight   = !isSignup ? '700' : '600';
+      tabLogin.style.borderBottom = !isSignup ? '2px solid var(--primary)' : '2px solid transparent';
+    }
+
+    const descSignup = document.getElementById('auth-desc-signup');
+    const descLogin  = document.getElementById('auth-desc-login');
+    const subSignup  = document.getElementById('auth-sub-signup');
+    const subLogin   = document.getElementById('auth-sub-login');
+    if (descSignup) descSignup.style.display = isSignup ? 'block' : 'none';
+    if (descLogin)  descLogin.style.display  = !isSignup ? 'block' : 'none';
+    if (subSignup)  subSignup.style.display  = isSignup ? 'block' : 'none';
+    if (subLogin)   subLogin.style.display   = !isSignup ? 'block' : 'none';
+
+    const btn = document.getElementById('btn-auth-main');
+    if (btn) btn.textContent = isSignup ? '無料で始める' : 'ログイン';
+  };
+
+  window.handleAuthMain = function() {
+    if (window._authMode === 'signup') {
+      document.getElementById('btn-signup').click();
+    } else {
+      document.getElementById('btn-login').click();
+    }
+  };
 </script>
 
 <style>
@@ -1582,8 +1630,9 @@ html, body { height:100%; font-family:var(--font); font-size:15px; background:va
       <a href="#lp-how">使い方</a>
       <a href="#lp-features">機能</a>
       <a href="#lp-pricing">料金</a>
+      <a onclick="window._showLogin()" style="cursor:pointer;">ログイン</a>
     </div>
-    <button class="lp-nav-cta" onclick="window._showLogin()">無料で試す</button>
+    <button class="lp-nav-cta" onclick="window._showSignup()">無料で試す</button>
   </nav>
 
   <!-- Hero -->
@@ -1596,7 +1645,7 @@ html, body { height:100%; font-family:var(--font); font-size:15px; background:va
       <h1>今日の売上を、<br><span>スコアで読む。</span></h1>
       <p>天気・曜日・季節イベントを加味した独自スコアで<br>今日と明日の売上ポテンシャルを自動計算。<br>仕込み量・シフトの判断を数字で裏付ける。</p>
       <div class="lp-hero-btns">
-        <button class="lp-btn-primary" onclick="window._showLogin()">無料トライアルを始める</button>
+        <button class="lp-btn-primary" onclick="window._showSignup()">無料トライアルを始める</button>
         <button class="lp-btn-ghost" onclick="document.getElementById('lp-how').scrollIntoView({behavior:'smooth'})">使い方を見る →</button>
       </div>
     </div>
@@ -1765,7 +1814,7 @@ html, body { height:100%; font-family:var(--font); font-size:15px; background:va
     <h2>まずは1ヶ月、無料で試してください</h2>
     <p>クレジットカード不要。登録は1分で完了します。<br>売上を入力するほど、あなたの店専用の予測に育ちます。</p>
     <div class="lp-cta-btns">
-      <button class="lp-cta-primary" onclick="window._showLogin()">無料トライアルを始める →</button>
+      <button class="lp-cta-primary" onclick="window._showSignup()">無料トライアルを始める →</button>
     </div>
     <div class="lp-cta-sub">30秒で登録 · クレカ不要 · いつでも解約可能</div>
   </section>
@@ -1818,8 +1867,42 @@ html, body { height:100%; font-family:var(--font); font-size:15px; background:va
         </div>
         <div class="brand-name"><span style="font-family:'DM Mono',monospace;font-size:inherit;"><span style="font-weight:700;letter-spacing:-0.5px;">Hi</span><span style="font-weight:300;letter-spacing:-0.5px;"> Score</span></span></div>
       </div>
-      <div class="login-title">今日の売上を、<br>スコアで読む。</div>
-      <div class="login-sub">天気・イベント・カレンダーから翌日の売上ポテンシャルを自動計算します。</div>
+      <!-- タブ -->
+      <div id="auth-tabs" style="
+        display:flex; border-bottom:2px solid #E2E8F0;
+        margin-bottom:24px;
+      ">
+        <button id="tab-signup" onclick="switchAuthMode('signup')" style="
+          flex:1; padding:12px 0; font-family:var(--font); font-size:14px;
+          font-weight:700; border:none; background:none; cursor:pointer;
+          color:var(--primary); border-bottom:2px solid var(--primary);
+          margin-bottom:-2px; transition:all 0.2s;
+        ">新規登録</button>
+        <button id="tab-login" onclick="switchAuthMode('login')" style="
+          flex:1; padding:12px 0; font-family:var(--font); font-size:14px;
+          font-weight:600; border:none; background:none; cursor:pointer;
+          color:#94A3B8; border-bottom:2px solid transparent;
+          margin-bottom:-2px; transition:all 0.2s;
+        ">ログイン</button>
+      </div>
+
+      <!-- 新規登録モード説明文 -->
+      <div id="auth-desc-signup" style="
+        font-size:13px; color:#64748B; margin-bottom:20px; line-height:1.6;
+      ">
+        メールアドレスとパスワードだけで登録できます。<br>
+        クレジットカード不要・1分で完了。
+      </div>
+
+      <!-- ログインモード説明文 -->
+      <div id="auth-desc-login" style="
+        display:none;
+        font-size:13px; color:#64748B; margin-bottom:20px; line-height:1.6;
+      ">
+        登録済みのメールアドレスとパスワードでログインしてください。
+      </div>
+
+      <!-- 共通フォーム -->
       <div class="form-group">
         <label class="form-label">メールアドレス</label>
         <input id="login-email" class="form-input" type="email" placeholder="your@email.com">
@@ -1828,12 +1911,42 @@ html, body { height:100%; font-family:var(--font); font-size:15px; background:va
         <label class="form-label">パスワード</label>
         <input id="login-pass" class="form-input" type="password" placeholder="8文字以上">
       </div>
-      <div class="btn-row">
-        <button id="btn-login"  class="btn-full btn-primary-full">ログイン</button>
-        <button id="btn-signup" class="btn-full btn-ghost-full">新規登録</button>
+
+      <!-- メインボタン（モードで切り替え） -->
+      <button id="btn-auth-main" onclick="handleAuthMain()" style="
+        width:100%; padding:14px; background:var(--primary); color:white;
+        border:none; border-radius:10px; font-family:var(--font);
+        font-size:15px; font-weight:700; cursor:pointer;
+        transition:background 0.2s; margin-top:4px;
+      ">無料で始める</button>
+
+      <!-- 隠し既存ボタン（内部処理用） -->
+      <button id="btn-login"  style="display:none;">ログイン</button>
+      <button id="btn-signup" style="display:none;">新規登録</button>
+
+      <!-- サブテキスト（モードで切り替え） -->
+      <div id="auth-sub-signup" style="
+        text-align:center; margin-top:16px; font-size:13px; color:#94A3B8;
+      ">
+        すでにアカウントをお持ちの方は
+        <a onclick="switchAuthMode('login')" style="
+          color:var(--primary); cursor:pointer; font-weight:600;
+          text-decoration:none;
+        ">こちらからログイン</a>
       </div>
-      <div class="login-back-lp">
-        <a onclick="window._showLogin && document.getElementById('screen-lp').classList.add('active') && document.getElementById('screen-login').classList.remove('active')">← トップに戻る</a>
+      <div id="auth-sub-login" style="
+        display:none; text-align:center; margin-top:16px;
+        font-size:13px; color:#94A3B8;
+      ">
+        アカウントをお持ちでない方は
+        <a onclick="switchAuthMode('signup')" style="
+          color:var(--primary); cursor:pointer; font-weight:600;
+          text-decoration:none;
+        ">新規登録はこちら</a>
+      </div>
+
+      <div class="login-back-lp" style="margin-top:20px;">
+        <a onclick="showScreen('lp')">← トップに戻る</a>
       </div>
     </div>
   </div>
