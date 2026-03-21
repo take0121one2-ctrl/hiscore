@@ -441,6 +441,10 @@ service cloud.firestore {
 
   // ─── DASHBOARD RENDER ───
   async function renderDashboard() {
+    if (!storeData || !storeData.lat || !storeData.lon) {
+      showScreen('setup');
+      return;
+    }
     setLoading('スコアを計算中...');
     try {
       const today    = new Date();
@@ -626,6 +630,7 @@ service cloud.firestore {
         userProfile = { role: 'store', companyId: user.uid, storeId: null };
         await setDoc(doc(db, 'users', user.uid), userProfile);
         setLoading(null);
+        applyRoleUI();
         showScreen('setup');
         return;
       }
@@ -656,8 +661,8 @@ service cloud.firestore {
         // store ロール
         currentStoreId = storeId;
         if (!currentStoreId) {
-          applyRoleUI();
           setLoading(null);
+          applyRoleUI();
           showScreen('setup');
           return;
         }
@@ -798,6 +803,7 @@ service cloud.firestore {
 
     // Result Input
     document.getElementById('btn-save-result').addEventListener('click', async () => {
+      if (!storeData) { showToast('店舗設定を完了してください', 'error'); return; }
       const amount = parseInt(document.getElementById('result-amount').value);
       if (!amount || amount < 0) { showToast('売上金額を入力してください', 'error'); return; }
       const yesterday   = new Date(Date.now() - 86400000);
@@ -851,19 +857,16 @@ service cloud.firestore {
         document.getElementById('setup-sat').value     = storeData.sat     || '';
         document.getElementById('setup-sun').value     = storeData.sun     || '';
       }
-      document.getElementById('setup-paste-data').value = '';
       showScreen('setup');
     });
 
     document.getElementById('btn-back-dashboard').addEventListener('click', async () => {
-      if (!storeData) {
-        showToast('先に店舗情報を保存してください', 'error');
-        return;
-      }
       showScreen('dashboard');
-      renderAdminHeader();
-      applyRoleUI();
-      await renderDashboard();
+      if (storeData) {
+        renderAdminHeader();
+        applyRoleUI();
+        await renderDashboard();
+      }
     });
 
     document.getElementById('login-pass').addEventListener('keydown', e => {
