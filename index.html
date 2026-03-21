@@ -181,23 +181,25 @@ service cloud.firestore {
     const isNextHoliday = !!(holidays[toDateKey(next)]);
 
     // ── 曜日・祝日スコア（店舗タイプ補正付き） ──
-    const isOffice  = storePattern === 'office';
-    const isTourist = storePattern === 'tourist';
+    const isOffice      = storePattern === 'office';
+    const isTourist     = storePattern === 'tourist';
+    const isResidential = storePattern === 'residential';
 
     if (isHoliday) {
-      const pt = isOffice ? 1 : isTourist ? 4 : 3;
+      const pt = isOffice ? 1 : isTourist ? 4 : isResidential ? 2 : 3;
       score += pt; factors.push({ label: `祝日（${holidays[dateKey]}）`, pt });
     } else if (dow === 5) {
-      const pt = isOffice ? 4 : isTourist ? 3 : 3;
+      const pt = isOffice ? 4 : isTourist ? 3 : isResidential ? 2 : 3;
       score += pt; factors.push({ label: '金曜日', pt });
     } else if (dow === 6) {
-      const pt = isOffice ? -1 : isTourist ? 4 : 3;
+      const pt = isOffice ? -1 : isTourist ? 4 : isResidential ? 3 : 3;
       score += pt; factors.push({ label: '土曜日', pt });
     } else if (dow === 0) {
-      const pt = isOffice ? -2 : isTourist ? 3 : 2;
+      const pt = isOffice ? -2 : isTourist ? 3 : isResidential ? 3 : 2;
       score += pt; factors.push({ label: '日曜日', pt });
     } else {
-      if (isOffice) { score += 1; factors.push({ label: '平日（オフィス街）', pt: 1 }); }
+      if (isOffice)      { score += 1; factors.push({ label: '平日（オフィス街）', pt: 1 }); }
+      if (isResidential) { score -= 1; factors.push({ label: '平日（住宅街）', pt: -1 }); }
     }
 
     // ── 祝前日 ──
@@ -900,6 +902,27 @@ service cloud.firestore {
         setLoading('設定を保存中...');
         const companyId = userProfile?.companyId || currentUser.uid;
         const data = { name, address, zipcode, lat: geo.lat, lon: geo.lon, weekday, fri, sat, sun, createdAt: new Date().toISOString() };
+        // 手動選択されたタイプを取得
+        const selectedType = document.querySelector('input[name="store-type"]:checked')?.value || 'auto';
+        if (selectedType !== 'auto') {
+          const manualLabels = {
+            standard:    '標準型',
+            office:      'オフィス街・サラリーマン型',
+            tourist:     '観光地・繁華街型',
+            residential: '住宅街・ファミリー型',
+          };
+          const manualNotes = {
+            standard:    '平日・週末ともにバランスの良い売上傾向です。',
+            office:      '平日の需要が高く、土日祝は売上が下がる傾向があります。',
+            tourist:     '土日の集客が強い傾向があります。週末・イベントのスコアを強めに補正します。',
+            residential: '週末はファミリー客が増え、平日はやや閑散になる傾向です。',
+          };
+          if (!coefficients) coefficients = {};
+          coefficients.storePattern   = selectedType;
+          coefficients.patternLabel   = manualLabels[selectedType] || '';
+          coefficients.patternNote    = manualNotes[selectedType]  || '';
+          coefficients.manualOverride = true;
+        }
         if (coefficients) data.coefficients = coefficients;
         if (currentStoreId) {
           await setDoc(doc(db, 'companies', companyId, 'stores', currentStoreId), { settings: data }, { merge: true });
@@ -1013,6 +1036,12 @@ service cloud.firestore {
         document.getElementById('setup-fri').value     = storeData.fri     || '';
         document.getElementById('setup-sat').value     = storeData.sat     || '';
         document.getElementById('setup-sun').value     = storeData.sun     || '';
+        // 店舗タイプを復元
+        const savedPattern  = storeData?.coefficients?.storePattern;
+        const isManual      = storeData?.coefficients?.manualOverride;
+        const typeToRestore = (savedPattern && isManual) ? savedPattern : 'auto';
+        const radioEl = document.querySelector(`input[name="store-type"][value="${typeToRestore}"]`);
+        if (radioEl) radioEl.checked = true;
       }
       showScreen('setup');
     });
@@ -2014,6 +2043,59 @@ html, body { height:100%; font-family:var(--font); font-size:15px; background:va
         <div class="form-hint">大体の金額でOKです。続けるほど予測の精度があがります。</div>
       </div>
     </div>
+    <div class="setup-section">
+      <div class="setup-section-title">店舗タイプ（任意）</div>
+      <div class="setup-card">
+        <div class="form-group">
+          <div style="display:flex; flex-direction:column; gap:12px;">
+            <label style="display:flex; align-items:flex-start; gap:10px; cursor:pointer;">
+              <input type="radio" name="store-type" id="type-auto" value="auto"
+                checked style="margin-top:3px; accent-color:var(--primary);">
+              <div>
+                <div style="font-size:13px; font-weight:600; color:#0F172A;">自動判定（推奨）</div>
+                <div style="font-size:12px; color:#64748B; margin-top:2px;">過去データから自動で判定します</div>
+              </div>
+            </label>
+            <label style="display:flex; align-items:flex-start; gap:10px; cursor:pointer;">
+              <input type="radio" name="store-type" id="type-standard" value="standard"
+                style="margin-top:3px; accent-color:var(--primary);">
+              <div>
+                <div style="font-size:13px; font-weight:600; color:#0F172A;">標準（デフォルト）</div>
+                <div style="font-size:12px; color:#64748B; margin-top:2px;">平日・週末ともにバランスよく集客する店舗</div>
+              </div>
+            </label>
+            <label style="display:flex; align-items:flex-start; gap:10px; cursor:pointer;">
+              <input type="radio" name="store-type" id="type-office" value="office"
+                style="margin-top:3px; accent-color:var(--primary);">
+              <div>
+                <div style="font-size:13px; font-weight:600; color:#0F172A;">オフィス街・サラリーマン向け</div>
+                <div style="font-size:12px; color:#64748B; margin-top:2px;">平日の需要が高く、土日祝は売上が下がる傾向</div>
+              </div>
+            </label>
+            <label style="display:flex; align-items:flex-start; gap:10px; cursor:pointer;">
+              <input type="radio" name="store-type" id="type-tourist" value="tourist"
+                style="margin-top:3px; accent-color:var(--primary);">
+              <div>
+                <div style="font-size:13px; font-weight:600; color:#0F172A;">観光地・繁華街</div>
+                <div style="font-size:12px; color:#64748B; margin-top:2px;">土日・祝日・イベント時の集客が強い店舗</div>
+              </div>
+            </label>
+            <label style="display:flex; align-items:flex-start; gap:10px; cursor:pointer;">
+              <input type="radio" name="store-type" id="type-residential" value="residential"
+                style="margin-top:3px; accent-color:var(--primary);">
+              <div>
+                <div style="font-size:13px; font-weight:600; color:#0F172A;">住宅街・ファミリー向け</div>
+                <div style="font-size:12px; color:#64748B; margin-top:2px;">週末は家族客が増え、平日はやや閑散</div>
+              </div>
+            </label>
+          </div>
+          <div class="form-hint" style="margin-top:12px;">
+            過去データがある場合は「自動判定」を推奨。手動選択は自動判定より優先されます。
+          </div>
+        </div>
+      </div>
+    </div>
+
     <div class="setup-section">
       <div class="setup-section-title">先月の実績データ（任意）</div>
       <div class="setup-card">
