@@ -625,6 +625,7 @@ service cloud.firestore {
         // プロフィール未作成 = 新規ユーザー → デフォルトプロフィールを自動生成
         userProfile = { role: 'store', companyId: user.uid, storeId: null };
         await setDoc(doc(db, 'users', user.uid), userProfile);
+        setLoading(null);
         showScreen('setup');
         return;
       }
@@ -640,12 +641,14 @@ service cloud.firestore {
           if (s) storeList.push({ id: d.id, ...s });
         });
         if (storeList.length === 0) {
+          setLoading(null);
           showScreen('setup');
         } else {
           currentStoreId = storeList[0].id;
           storeData = storeList[0];
           renderAdminHeader();
           applyRoleUI();
+          setLoading(null);
           showScreen('dashboard');
           renderDashboard();
         }
@@ -654,17 +657,20 @@ service cloud.firestore {
         currentStoreId = storeId;
         if (!currentStoreId) {
           applyRoleUI();
+          setLoading(null);
           showScreen('setup');
           return;
         }
         const storeDocSnap = await getDoc(doc(db, 'companies', companyId, 'stores', storeId));
         if (!storeDocSnap.exists() || !storeDocSnap.data().settings) {
           applyRoleUI();
+          setLoading(null);
           showScreen('setup');
         } else {
           storeData = { id: storeId, ...storeDocSnap.data().settings };
           renderAdminHeader();
           applyRoleUI();
+          setLoading(null);
           showScreen('dashboard');
           renderDashboard();
         }
@@ -676,6 +682,7 @@ service cloud.firestore {
       storeData      = null;
       currentStoreId = null;
       storeList      = [];
+      setLoading(null);
       showScreen('lp');
     }
   });
@@ -848,8 +855,15 @@ service cloud.firestore {
       showScreen('setup');
     });
 
-    document.getElementById('btn-back-dashboard').addEventListener('click', () => {
+    document.getElementById('btn-back-dashboard').addEventListener('click', async () => {
+      if (!storeData) {
+        showToast('先に店舗情報を保存してください', 'error');
+        return;
+      }
       showScreen('dashboard');
+      renderAdminHeader();
+      applyRoleUI();
+      await renderDashboard();
     });
 
     document.getElementById('login-pass').addEventListener('keydown', e => {
