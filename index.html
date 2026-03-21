@@ -806,26 +806,43 @@ service cloud.firestore {
       if (!storeData) { showToast('店舗設定を完了してください', 'error'); return; }
       const amount = parseInt(document.getElementById('result-amount').value);
       if (!amount || amount < 0) { showToast('売上金額を入力してください', 'error'); return; }
-      const yesterday   = new Date(Date.now() - 86400000);
-      const dateStr     = yesterday.toISOString().slice(0, 10);
-      const cal         = await getCalendarScore(yesterday);
-      const wScore      = await fetchWeatherScore(storeData.lat, storeData.lon, yesterday);
-      const total       = cal.score + wScore.score;
-      const pred        = calcPrediction(total, storeData, yesterday, wScore.score, window._holidays);
       setLoading('保存中...');
-      const memo = document.getElementById('result-memo').value.trim();
-      await addDoc(collection(db, 'companies', userProfile.companyId, 'stores', currentStoreId, 'results'), {
-        date: dateStr, actual: amount, predicted: pred ? pred.amount : null,
-        scoreTotal: total, weatherLabel: wScore.label, dow: yesterday.getDay(),
-        memo: memo || null,
-        createdAt: new Date().toISOString()
-      });
-      setLoading(null);
-      document.getElementById('result-amount').value = '';
-      document.getElementById('result-memo').value = '';
-      showToast('売上を保存しました', 'success');
-      const report = await calcAccuracyReport();
-      renderAccuracyReport(report);
+      try {
+        const yesterday = new Date(Date.now() - 86400000);
+        const dateStr   = yesterday.toISOString().slice(0, 10);
+        const cal       = await getCalendarScore(yesterday);
+        const wScore    = await fetchWeatherScore(storeData.lat, storeData.lon, yesterday);
+        const total     = cal.score + wScore.score;
+        const pred      = calcPrediction(total, storeData, yesterday, wScore.score, window._holidays);
+        const memo      = document.getElementById('result-memo')?.value.trim() || null;
+        const companyId = userProfile?.companyId || currentUser.uid;
+        await addDoc(
+          collection(db, 'companies', companyId, 'stores', currentStoreId, 'results'),
+          {
+            date: dateStr,
+            actual: amount,
+            predicted: pred ? pred.amount : null,
+            scoreTotal: total,
+            weatherLabel: wScore.label,
+            dow: yesterday.getDay(),
+            memo: memo || null,
+            createdAt: new Date().toISOString()
+          }
+        );
+        document.getElementById('result-amount').value = '';
+        if (document.getElementById('result-memo')) document.getElementById('result-memo').value = '';
+        setLoading(null);
+        showToast('売上を保存しました', 'success');
+        try {
+          const report = await calcAccuracyReport();
+          renderAccuracyReport(report);
+        } catch(e) {
+          // 分析レポートの更新失敗は無視（保存は成功している）
+        }
+      } catch(e) {
+        setLoading(null);
+        showToast('保存に失敗しました: ' + e.message, 'error');
+      }
     });
 
     // Nav tabs
