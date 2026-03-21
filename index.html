@@ -5,7 +5,7 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
     match /users/{uid} {
-      allow read: if request.auth.uid == uid;
+      allow read, write: if request.auth.uid == uid;
     }
     match /companies/{companyId}/stores/{storeId} {
       allow read, write: if
@@ -769,36 +769,42 @@ service cloud.firestore {
         showToast('住所の解析に失敗しました。郵便番号を確認してください。', 'error');
         return;
       }
-      setLoading('設定を保存中...');
-      const companyId = userProfile?.companyId || currentUser.uid;
-      const data = { name, address, zipcode, lat: geo.lat, lon: geo.lon, weekday, fri, sat, sun, createdAt: new Date().toISOString() };
-      if (coefficients) data.coefficients = coefficients;
-      if (currentStoreId) {
-        await setDoc(doc(db, 'companies', companyId, 'stores', currentStoreId), { settings: data }, { merge: true });
-        const idx = storeList.findIndex(s => s.id === currentStoreId);
-        if (idx >= 0) storeList[idx] = { id: currentStoreId, ...data };
-      } else {
-        const storeRef = doc(collection(db, 'companies', companyId, 'stores'));
-        currentStoreId = storeRef.id;
-        await setDoc(storeRef, { settings: data });
-        storeList.push({ id: currentStoreId, ...data });
+      try {
+        setLoading('設定を保存中...');
+        const companyId = userProfile?.companyId || currentUser.uid;
+        const data = { name, address, zipcode, lat: geo.lat, lon: geo.lon, weekday, fri, sat, sun, createdAt: new Date().toISOString() };
+        if (coefficients) data.coefficients = coefficients;
+        if (currentStoreId) {
+          await setDoc(doc(db, 'companies', companyId, 'stores', currentStoreId), { settings: data }, { merge: true });
+          const idx = storeList.findIndex(s => s.id === currentStoreId);
+          if (idx >= 0) storeList[idx] = { id: currentStoreId, ...data };
+        } else {
+          const storeRef = doc(collection(db, 'companies', companyId, 'stores'));
+          currentStoreId = storeRef.id;
+          await setDoc(storeRef, { settings: data });
+          storeList.push({ id: currentStoreId, ...data });
+        }
+        storeData = { id: currentStoreId, ...data };
+        // userProfileのstoreIdを更新
+        if (!userProfile.storeId) {
+          userProfile.storeId = currentStoreId;
+          await setDoc(doc(db, 'users', currentUser.uid), { storeId: currentStoreId }, { merge: true });
+        }
+        renderAdminHeader();
+        applyRoleUI();
+        setLoading(null);
+        if (pasteRecords.length > 0) {
+          showToast(`${data.name} の設定を保存しました（${pasteRecords.length}日分のデータを取り込みました）`, 'success');
+        } else {
+          showToast(`${data.name} の設定を保存しました`, 'success');
+        }
+        showScreen('dashboard');
+        renderDashboard();
+      } catch(e) {
+        setLoading(null);
+        showToast('保存に失敗しました: ' + e.message, 'error');
+        console.error('Setup save error:', e);
       }
-      storeData = { id: currentStoreId, ...data };
-      // userProfileのstoreIdを更新
-      if (!userProfile.storeId) {
-        userProfile.storeId = currentStoreId;
-        await setDoc(doc(db, 'users', currentUser.uid), { storeId: currentStoreId }, { merge: true });
-      }
-      renderAdminHeader();
-      applyRoleUI();
-      setLoading(null);
-      if (pasteRecords.length > 0) {
-        showToast(`${data.name} の設定を保存しました（${pasteRecords.length}日分のデータを取り込みました）`, 'success');
-      } else {
-        showToast(`${data.name} の設定を保存しました`, 'success');
-      }
-      showScreen('dashboard');
-      renderDashboard();
     });
 
     // Result Input
