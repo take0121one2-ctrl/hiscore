@@ -741,35 +741,35 @@ service cloud.firestore {
       if (!name) { showToast('店舗名を入力してください', 'error'); return; }
       if (!zipcode) { showToast('郵便番号を入力してください', 'error'); return; }
 
-      // コピペデータ解析
-      const pasteText  = document.getElementById('setup-paste-data').value.trim();
-      let pasteRecords = [];
-      let coefficients = null;
-      if (pasteText) {
-        pasteRecords = parsePastedData(pasteText);
-        if (pasteRecords.length > 0) {
-          coefficients = calculateCoefficients(pasteRecords);
-          if (coefficients) {
-            // 手入力が空の場合のみコピペデータで補完
-            if (!weekday && coefficients.weekdayAvg) { weekday = coefficients.weekdayAvg; document.getElementById('setup-weekday').value = weekday; }
-            if (!fri     && coefficients.friAvg)     { fri     = coefficients.friAvg;     document.getElementById('setup-fri').value     = fri; }
-            if (!sat     && coefficients.satAvg)     { sat     = coefficients.satAvg;     document.getElementById('setup-sat').value     = sat; }
-            if (!sun     && coefficients.sunAvg)     { sun     = coefficients.sunAvg;     document.getElementById('setup-sun').value     = sun; }
+      try {
+        // コピペデータ解析
+        const pasteText  = document.getElementById('setup-paste-data').value.trim();
+        let pasteRecords = [];
+        let coefficients = null;
+        if (pasteText) {
+          pasteRecords = parsePastedData(pasteText);
+          if (pasteRecords.length > 0) {
+            coefficients = calculateCoefficients(pasteRecords);
+            if (coefficients) {
+              // 手入力が空の場合のみコピペデータで補完
+              if (!weekday && coefficients.weekdayAvg) { weekday = coefficients.weekdayAvg; document.getElementById('setup-weekday').value = weekday; }
+              if (!fri     && coefficients.friAvg)     { fri     = coefficients.friAvg;     document.getElementById('setup-fri').value     = fri; }
+              if (!sat     && coefficients.satAvg)     { sat     = coefficients.satAvg;     document.getElementById('setup-sat').value     = sat; }
+              if (!sun     && coefficients.sunAvg)     { sun     = coefficients.sunAvg;     document.getElementById('setup-sun').value     = sun; }
+            }
           }
         }
-      }
 
-      let geo = window._geocodeCache;
-      if (!geo) {
-        setLoading('住所を解析中...');
-        geo = await geocodeAddress(zipcode);
-      }
-      if (!geo) {
-        setLoading(null);
-        showToast('住所の解析に失敗しました。郵便番号を確認してください。', 'error');
-        return;
-      }
-      try {
+        let geo = window._geocodeCache;
+        if (!geo) {
+          setLoading('住所を解析中...');
+          geo = await geocodeAddress(zipcode);
+        }
+        if (!geo) {
+          setLoading(null);
+          showToast('住所の解析に失敗しました。郵便番号を確認してください。', 'error');
+          return;
+        }
         setLoading('設定を保存中...');
         const companyId = userProfile?.companyId || currentUser.uid;
         const data = { name, address, zipcode, lat: geo.lat, lon: geo.lon, weekday, fri, sat, sun, createdAt: new Date().toISOString() };
@@ -848,6 +848,7 @@ service cloud.firestore {
       } catch(e) {
         setLoading(null);
         showToast('保存に失敗しました: ' + e.message, 'error');
+        console.error('Result save error:', e);
       }
     });
 
