@@ -274,13 +274,72 @@ service cloud.firestore {
       score += 1; factors.push({ label: '歓送迎会シーズン', pt: 1 });
     }
 
+    // ── 月次ベースライン補正（繁忙期・閑散期） ──
+    // 1月後半：正月・新年会明けの消費冷え込み
+    if (month === 1 && day >= 15) {
+      const pt = isOffice ? -2 : -1;
+      score += pt; factors.push({ label: '1月後半（閑散期）', pt });
+    }
+    // 2月：ニッパチ（観光地は底堅い、オフィスは特に落ちる）
+    if (month === 2 && day !== 14) {
+      const pt = isOffice ? -2 : isTourist ? 0 : isResidential ? -1 : -1;
+      score += pt; factors.push({ label: '2月（ニッパチ）', pt });
+    }
+    // 6月：梅雨・歓送迎会明けの谷
+    if (month === 6) {
+      score -= 1; factors.push({ label: '6月（梅雨・閑散）', pt: -1 });
+    }
+    // 8月後半：お盆明けの急落（観光地は観光客が来る）
+    if (month === 8 && day >= 17) {
+      const pt = isOffice ? -2 : isTourist ? 0 : -1;
+      score += pt; factors.push({ label: 'お盆明け（閑散）', pt });
+    }
+    // 9月前半：残暑・夏疲れの谷
+    if (month === 9 && day <= 15) {
+      score -= 1; factors.push({ label: '9月前半（閑散）', pt: -1 });
+    }
+    // 11月前半：忘年会前の静けさ
+    if (month === 11 && day <= 20) {
+      score -= 1; factors.push({ label: '11月前半（閑散）', pt: -1 });
+    }
+    // 5月後半：GW後の反動消費
+    if (month === 5 && day >= 8 && day <= 20) {
+      score += 1; factors.push({ label: 'GW後の反動消費', pt: 1 });
+    }
+    // 6月ボーナス後
+    if (month === 6 && day >= 20) {
+      score += 1; factors.push({ label: '夏ボーナス後', pt: 1 });
+    }
+    // 12月ボーナス後
+    if (month === 12 && day >= 8 && day <= 19) {
+      score += 1; factors.push({ label: '冬ボーナス後', pt: 1 });
+    }
+    // 10月：食欲の秋
+    if (month === 10 && day >= 1 && day <= 20) {
+      score += 1; factors.push({ label: '食欲の秋', pt: 1 });
+    }
+
+    // ── 給料日サイクル補正 ──
+    // 給料日前後（25日前後）
+    if (day >= 24 && day <= 27) {
+      score += 1; factors.push({ label: '給料日前後', pt: 1 });
+    }
+    // 月末（28日以降）
+    if (day >= 28) {
+      score -= 1; factors.push({ label: '月末（財布の締め）', pt: -1 });
+    }
+    // 月初（1〜5日）：正月除外
+    if (day >= 1 && day <= 5 && month !== 1) {
+      score += 1; factors.push({ label: '月初（消費意欲高め）', pt: 1 });
+    }
+
     return { score, factors };
   }
 
   // ─── PASTE DATA PARSER ───
   function parsePastedData(text) {
     const records  = [];
-    const MAX_LINES = 1000;
+    const MAX_LINES = 3650; // 最大10年分（365日×10）
     const lines    = text.split('\n').slice(0, MAX_LINES);
     for (const raw of lines) {
       const line = raw.trim();
@@ -872,15 +931,18 @@ service cloud.firestore {
             if (coefficients) {
               const fb = document.getElementById('paste-feedback');
               if (fb) {
+                const dataMsg =
+                  pasteRecords.length >= 365
+                    ? `🏆 ${pasteRecords.length}日分（1年以上）のデータを読み込みました。最高精度の予測が可能です`
+                    : pasteRecords.length >= 90
+                    ? `🎯 ${pasteRecords.length}日分（3ヶ月以上）のデータを読み込みました。高精度な予測が可能です`
+                    : pasteRecords.length >= 30
+                    ? `📈 ${pasteRecords.length}日分のデータを読み込みました。さらに過去データを追加するとより正確になります`
+                    : `⚠️ ${pasteRecords.length}日分のデータです。30日以上入力するとより正確な予測ができます`;
                 const lines = [
-                  `✅ ${pasteRecords.length}日分のデータを読み込みました`,
+                  dataMsg,
                   coefficients.patternLabel ? `📊 店舗タイプ：${coefficients.patternLabel}` : '',
                   coefficients.patternNote  ? `💡 ${coefficients.patternNote}` : '',
-                  pasteRecords.length >= 90
-                    ? `🎯 90日以上のデータが揃っており、高精度な予測が可能です`
-                    : pasteRecords.length >= 30
-                    ? `📈 30日以上のデータがあります。さらに過去データを追加するとより正確になります`
-                    : `⚠️ データが${pasteRecords.length}日分です。30日以上入力するとより正確な予測ができます`,
                 ].filter(Boolean);
                 fb.innerHTML = lines.join('<br>');
                 fb.style.display = 'block';
@@ -2097,16 +2159,19 @@ html, body { height:100%; font-family:var(--font); font-size:15px; background:va
     </div>
 
     <div class="setup-section">
-      <div class="setup-section-title">先月の実績データ（任意）</div>
+      <div class="setup-section-title">過去の売上データ（任意・多いほど精度向上）</div>
       <div class="setup-card">
         <div class="form-group">
-          <label class="form-label">先月の売上データを貼り付け（任意）</label>
+          <label class="form-label">過去の売上データを貼り付け（任意）</label>
           <textarea id="setup-paste-data" class="form-input" rows="7" style="height:160px;resize:vertical;font-family:var(--mono);font-size:13px;line-height:1.7;" placeholder="日付と売上を1行ずつ貼り付けてください（Excelやメモ帳からそのままコピペOK）
 例：
 2026/02/01  285000
 2026/02/02  412000
-2026/02/03  198000"></textarea>
-          <div class="form-hint">曜日別平均・晴雨係数を自動算出し、予測精度が上がります。手入力欄は自動入力されます。</div>
+2025/12/15  398000
+
+複数月・複数年分まとめて貼り付けOKです。
+多ければ多いほど予測精度が上がります。"></textarea>
+          <div class="form-hint">曜日別平均・晴雨係数・店舗タイプを自動算出します。<br>30日分以上で基本精度、90日分以上で高精度になります。<br>複数月・複数年のデータをまとめて貼り付けてください。</div>
           <div id="paste-feedback" style="
             display:none; margin-top:12px; padding:14px 16px;
             background:#F0FDF4; border:1.5px solid #86EFAC;
