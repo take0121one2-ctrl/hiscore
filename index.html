@@ -168,19 +168,16 @@ service cloud.firestore {
     let score = 0;
     let factors = [];
 
-    // 祝日データ取得（失敗時は空オブジェクト）
     const holidays = await fetchHolidays();
     const dateKey  = toDateKey(d);
     const isHoliday = !!(holidays[dateKey]);
 
-    // 前日・翌日
     const prev = new Date(d.getTime() - 86400000);
     const next = new Date(d.getTime() + 86400000);
     const isPrevHolidayOrWeekend = isWeekendOrHoliday(prev, holidays);
     const isNextHolidayOrWeekend = isWeekendOrHoliday(next, holidays);
     const isNextHoliday = !!(holidays[toDateKey(next)]);
 
-    // ── 曜日・祝日スコア（店舗タイプ補正付き） ──
     const isOffice      = storePattern === 'office';
     const isTourist     = storePattern === 'tourist';
     const isResidential = storePattern === 'residential';
@@ -202,20 +199,16 @@ service cloud.firestore {
       if (isResidential) { score -= 1; factors.push({ label: '平日（住宅街）', pt: -1 }); }
     }
 
-    // ── 祝前日 ──
     if (!isHoliday && isNextHoliday) {
       score += 2;
       factors.push({ label: '祝前日', pt: 2 });
     }
 
-    // ── 連休中日（前後が休日で自分は平日） ──
     if (!isHoliday && dow !== 0 && dow !== 6 && isPrevHolidayOrWeekend && isNextHolidayOrWeekend) {
       score -= 1;
       factors.push({ label: '連休中日', pt: -1 });
     }
 
-    // ── 季節イベント ──
-    // 花見補正（観光街は強め）
     if (month === 3 && day >= 20 && day <= 31) {
       const pt = isTourist ? 3 : 2;
       score += pt; factors.push({ label: '花見シーズン', pt });
@@ -225,110 +218,112 @@ service cloud.firestore {
       score += pt; factors.push({ label: '花見シーズン', pt });
     }
 
-    // GW
     if ((month === 4 && day >= 28) || (month === 5 && day <= 6)) { score += 3; factors.push({ label: 'GW', pt: 3 }); }
 
-    // 母の日（5月第2日曜）
     const motherDay = getNthWeekday(d.getFullYear(), 5, 0, 2);
     if (month === 5 && day === motherDay)                         { score += 2; factors.push({ label: '母の日', pt: 2 }); }
 
-    // 父の日（6月第3日曜）
     const fatherDay = getNthWeekday(d.getFullYear(), 6, 0, 3);
     if (month === 6 && day === fatherDay)                         { score += 1; factors.push({ label: '父の日', pt: 1 }); }
 
-    // 七夕
     if (month === 7 && day === 7)                                 { score += 1; factors.push({ label: '七夕', pt: 1 }); }
 
-    // 夏季（お盆除く）
     if ((month === 7 && day <= 12) || (month === 8 && (day < 13 || day > 16))) { score += 1; factors.push({ label: '夏季シーズン', pt: 1 }); }
 
-    // お盆補正（オフィス街はさらに低い）
     if (month === 8 && day >= 13 && day <= 16) {
       const pt = isOffice ? -3 : -2;
       score += pt; factors.push({ label: 'お盆', pt });
     }
 
-    // ハロウィン
     if (month === 10 && day === 31)                               { score += 2; factors.push({ label: 'ハロウィン', pt: 2 }); }
 
-    // 忘年会シーズン
     if (month === 12 && day >= 1 && day <= 19)                   { score += 2; factors.push({ label: '忘年会シーズン', pt: 2 }); }
 
-    // 年末
     if (month === 12 && day >= 20 && day <= 23)                  { score += 2; factors.push({ label: '年末シーズン', pt: 2 }); }
     if (month === 12 && day === 24)                               { score += 3; factors.push({ label: 'クリスマスイブ', pt: 3 }); }
     if (month === 12 && day === 31)                               { score += 3; factors.push({ label: '大晦日', pt: 3 }); }
 
-    // 正月・新年会
     if (month === 1 && day <= 3)                                  { score += 3; factors.push({ label: '正月', pt: 3 }); }
     if (month === 1 && day >= 4 && day <= 14)                    { score += 1; factors.push({ label: '新年会シーズン', pt: 1 }); }
 
-    // バレンタイン
     if (month === 2 && day === 14)                                { score += 2; factors.push({ label: 'バレンタイン', pt: 2 }); }
 
-    // ひな祭り
     if (month === 3 && day === 3)                                 { score += 1; factors.push({ label: 'ひな祭り', pt: 1 }); }
 
-    // 歓送迎会シーズン（3・4・9・10月の金曜または祝日）
     if ((month === 3 || month === 4 || month === 9 || month === 10) && (dow === 5 || isHoliday)) {
       score += 1; factors.push({ label: '歓送迎会シーズン', pt: 1 });
     }
 
-    // ── 月次ベースライン補正（繁忙期・閑散期） ──
-    // 1月後半：正月・新年会明けの消費冷え込み
     if (month === 1 && day >= 15) {
       const pt = isOffice ? -2 : -1;
       score += pt; factors.push({ label: '1月後半（閑散期）', pt });
     }
-    // 2月：ニッパチ（観光地は底堅い、オフィスは特に落ちる）
     if (month === 2 && day !== 14) {
       const pt = isOffice ? -2 : isTourist ? 0 : isResidential ? -1 : -1;
       score += pt; factors.push({ label: '2月（ニッパチ）', pt });
     }
-    // 6月：梅雨・歓送迎会明けの谷
     if (month === 6) {
       score -= 1; factors.push({ label: '6月（梅雨・閑散）', pt: -1 });
     }
-    // 8月後半：お盆明けの急落（観光地は観光客が来る）
     if (month === 8 && day >= 17) {
       const pt = isOffice ? -2 : isTourist ? 0 : -1;
       score += pt; factors.push({ label: 'お盆明け（閑散）', pt });
     }
-    // 9月前半：残暑・夏疲れの谷
     if (month === 9 && day <= 15) {
       score -= 1; factors.push({ label: '9月前半（閑散）', pt: -1 });
     }
-    // 11月前半：忘年会前の静けさ
     if (month === 11 && day <= 20) {
       score -= 1; factors.push({ label: '11月前半（閑散）', pt: -1 });
     }
-    // 5月後半：GW後の反動消費
     if (month === 5 && day >= 8 && day <= 20) {
       score += 1; factors.push({ label: 'GW後の反動消費', pt: 1 });
     }
-    // 6月ボーナス後
     if (month === 6 && day >= 20) {
       score += 1; factors.push({ label: '夏ボーナス後', pt: 1 });
     }
-    // 12月ボーナス後
     if (month === 12 && day >= 8 && day <= 19) {
       score += 1; factors.push({ label: '冬ボーナス後', pt: 1 });
     }
-    // 10月：食欲の秋
     if (month === 10 && day >= 1 && day <= 20) {
       score += 1; factors.push({ label: '食欲の秋', pt: 1 });
     }
 
-    // ── 給料日サイクル補正 ──
-    // 給料日前後（25日前後）
-    if (day >= 24 && day <= 27) {
-      score += 1; factors.push({ label: '給料日前後', pt: 1 });
+    // ── 給料日サイクル補正（15日・25日、土日祝は直前平日に振込） ──
+    function getActualPayday(year, mo, baseDay, hols) {
+      const lastDay = new Date(year, mo, 0).getDate();
+      const safeDay = Math.min(baseDay, lastDay);
+      let pd = new Date(year, mo - 1, safeDay);
+      while (pd.getDay() === 0 || pd.getDay() === 6 || !!(hols && hols[toDateKey(pd)])) {
+        pd.setDate(pd.getDate() - 1);
+      }
+      return pd;
     }
-    // 月末（28日以降）
+    const payday15 = getActualPayday(d.getFullYear(), month, 15, holidays);
+    const payday25 = getActualPayday(d.getFullYear(), month, 25, holidays);
+    const diff15 = Math.round((d - payday15) / 86400000);
+    const diff25 = Math.round((d - payday25) / 86400000);
+    const abs15 = Math.abs(diff15);
+    const abs25 = Math.abs(diff25);
+    let salaryPt = 0;
+    let salaryLabel = '';
+    if (abs15 === 0) {
+      salaryPt = 2; salaryLabel = `給料日（${payday15.getDate()}日）`;
+    } else if (abs25 === 0) {
+      salaryPt = 2; salaryLabel = `給料日（${payday25.getDate()}日）`;
+    } else if (abs15 <= 2 && abs25 <= 2) {
+      salaryPt = 1; salaryLabel = '給料日前後';
+    } else if (abs15 <= 2) {
+      salaryPt = 1; salaryLabel = `給料日前後（15日給）`;
+    } else if (abs25 <= 2) {
+      salaryPt = 1; salaryLabel = `給料日前後（25日給）`;
+    }
+    if (salaryPt > 0) {
+      score += salaryPt;
+      factors.push({ label: salaryLabel, pt: salaryPt });
+    }
     if (day >= 28) {
       score -= 1; factors.push({ label: '月末（財布の締め）', pt: -1 });
     }
-    // 月初（1〜5日）：正月除外
     if (day >= 1 && day <= 5 && month !== 1) {
       score += 1; factors.push({ label: '月初（消費意欲高め）', pt: 1 });
     }
@@ -338,37 +333,117 @@ service cloud.firestore {
 
   // ─── PASTE DATA PARSER ───
   function parsePastedData(text) {
-    const records  = [];
-    const MAX_LINES = 3650; // 最大10年分（365日×10）
-    const lines    = text.split('\n').slice(0, MAX_LINES);
-    for (const raw of lines) {
-      const line = raw.trim();
-      if (!line) continue;
-      // 区切り文字（タブ・カンマ・複数スペース）で分割
-      const parts = line.split(/[\t,]+|\s{2,}|\s+(?=\d{4,})/).map(s => s.trim()).filter(Boolean);
-      if (parts.length < 2) continue;
-      // 日付候補: YYYY/MM/DD, YYYY-MM-DD, M/D, MM/DD
-      let dateObj = null;
-      for (const p of parts) {
-        const m1 = p.match(/^(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})$/);
-        if (m1) {
-          const y = +m1[1];
-          if (y >= 2000 && y <= 2030) {
-            dateObj = new Date(y, +m1[2]-1, +m1[3]);
-          }
-          break;
-        }
-        const m2 = p.match(/^(\d{1,2})\/(\d{1,2})$/);
-        if (m2) { const now = new Date(); dateObj = new Date(now.getFullYear(), +m2[1]-1, +m2[2]); break; }
+    // [UPDATED] 日本語表記・万円・天気列・全角スペースに対応
+
+    // 天気キーワード判定（複合表現を先に評価）
+    const WEATHER_MAP = [
+      { pattern: /雨のち晴|雨のち曇/,              weather: 'cloudy' },
+      { pattern: /晴れ?のち[雨雪]|晴→[雨雪]/,     weather: 'rainy'  },
+      { pattern: /曇り?のち[雨雪]|曇→[雨雪]/,     weather: 'rainy'  },
+      { pattern: /晴れ?のち曇り?|晴→曇/,          weather: 'cloudy' },
+      { pattern: /快晴|晴れ|晴天|sunny|clear|☀|🌞/i, weather: 'sunny'  },
+      { pattern: /曇り?|くもり|cloudy|☁|🌥/i,     weather: 'cloudy' },
+      { pattern: /大雨|豪雨|小雨|雨|rain|🌧|☔/i,   weather: 'rainy'  },
+      { pattern: /大雪|雪|snow|❄|🌨/i,             weather: 'snowy'  },
+    ];
+    function detectWeather(str) {
+      for (const { pattern, weather } of WEATHER_MAP) {
+        if (pattern.test(str)) return weather;
       }
-      // 金額候補: 10000以上100000000以下の数値（カンマ・円記号除去）
+      return null;
+    }
+
+    // ── 金額の正規化（万・千・億対応） ──
+    function parseAmount(str) {
+      // 全角数字を半角に変換
+      const s = str.replace(/[０-９]/g, c => String.fromCharCode(c.charCodeAt(0) - 0xFEE0));
+      // 億・万・千の単位を数値に変換
+      const manMatch = s.match(/^(\d+(?:\.\d+)?)万(\d+)?$/);
+      if (manMatch) {
+        const man  = parseFloat(manMatch[1]) * 10000;
+        const hasu = manMatch[2] ? parseInt(manMatch[2]) : 0;
+        const total = Math.round(man + hasu);
+        if (total >= 10000 && total <= 100000000) return total;
+      }
+      const okuMatch = s.match(/^(\d+(?:\.\d+)?)億$/);
+      if (okuMatch) {
+        const total = Math.round(parseFloat(okuMatch[1]) * 100000000);
+        if (total >= 10000 && total <= 100000000) return total;
+      }
+      // 通常の数値（カンマ・円・￥記号を除去）
+      const cleaned = s.replace(/[,、円￥¥]/g, '');
+      const n = parseInt(cleaned);
+      if (!isNaN(n) && n >= 10000 && n <= 100000000) return n;
+      return null;
+    }
+
+    // ── 日付の正規化 ──
+    function parseDate(str) {
+      // 全角数字を半角に変換
+      const s = str.replace(/[０-９]/g, c => String.fromCharCode(c.charCodeAt(0) - 0xFEE0));
+      // YYYY年MM月DD日
+      const m0 = s.match(/(\d{4})年(\d{1,2})月(\d{1,2})日?/);
+      if (m0) {
+        const y = +m0[1];
+        if (y >= 2000 && y <= 2030) return new Date(y, +m0[2]-1, +m0[3]);
+      }
+      // YYYY/MM/DD または YYYY-MM-DD
+      const m1 = s.match(/(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})/);
+      if (m1) {
+        const y = +m1[1];
+        if (y >= 2000 && y <= 2030) return new Date(y, +m1[2]-1, +m1[3]);
+      }
+      // MM/DD（年省略）
+      const m2 = s.match(/^(\d{1,2})\/(\d{1,2})$/);
+      if (m2) {
+        const now = new Date();
+        return new Date(now.getFullYear(), +m2[1]-1, +m2[2]);
+      }
+      return null;
+    }
+
+    const records  = [];
+    const MAX_LINES = 3650;
+    const lines    = text.split('\n').slice(0, MAX_LINES);
+
+    for (const raw of lines) {
+      // 全角スペース・タブを半角スペースに統一してからtrim
+      const line = raw.replace(/　/g, ' ').trim();
+      if (!line) continue;
+
+      // 区切り文字で分割（タブ・カンマ・全角スペース・複数スペース）
+      const parts = line.split(/[\t,]+|\s+/).map(s => s.trim()).filter(Boolean);
+      if (!parts.length) continue;
+
+      // 行全体から日付を探す（年月日が混在していてもOK）
+      let dateObj = null;
+      // まずparts単位で探す
+      for (const p of parts) {
+        dateObj = parseDate(p);
+        if (dateObj) break;
+      }
+      // partsで見つからなければ行全体から正規表現で探す
+      if (!dateObj) {
+        dateObj = parseDate(line);
+      }
+
+      // 金額を探す
       let amount = null;
       for (const p of parts) {
-        const n = parseInt(p.replace(/,/g, '').replace(/円/g, ''));
-        if (!isNaN(n) && n >= 10000 && n <= 100000000) { amount = n; break; }
+        amount = parseAmount(p);
+        if (amount) break;
       }
+
+      // 天気を探す（全partsと行全体を対象）
+      let weather = null;
+      for (const p of parts) {
+        weather = detectWeather(p);
+        if (weather) break;
+      }
+      if (!weather) weather = detectWeather(line);
+
       if (dateObj && !isNaN(dateObj.getTime()) && amount) {
-        records.push({ date: dateObj, amount, dow: dateObj.getDay() });
+        records.push({ date: dateObj, amount, dow: dateObj.getDay(), weather });
       }
     }
     return records;
@@ -391,17 +466,26 @@ service cloud.firestore {
                rainRatio: 0.85, sunnyRatio: 1.15,
                storePattern: 'standard', patternLabel: '', patternNote: '' };
     }
-    // 売上分布から晴れ系・雨系を推定
-    const sorted   = [...records].sort((a, b) => a.amount - b.amount);
-    const cutLow   = Math.ceil(n * 0.3);
-    const cutHigh  = Math.floor(n * 0.7);
-    const rainVals  = sorted.slice(0, cutLow).map(r => r.amount);
-    const sunnyVals = sorted.slice(cutHigh).map(r => r.amount);
-    const allAvg    = avg(records.map(r => r.amount));
-    const rainRatio  = allAvg > 0 ? avg(rainVals)  / allAvg : 0.85;
-    const sunnyRatio = allAvg > 0 ? avg(sunnyVals) / allAvg : 1.15;
+    const allAvg = avg(records.map(r => r.amount));
+    // 天気列が3件以上ある場合は実績から算出、少ない場合は売上分布から推定
+    const realRainVals  = records.filter(r => r.weather === 'rainy' || r.weather === 'snowy').map(r => r.amount);
+    const realSunnyVals = records.filter(r => r.weather === 'sunny').map(r => r.amount);
+    let rainRatio, sunnyRatio, weatherDataNote;
+    if (realRainVals.length >= 3 && realSunnyVals.length >= 3) {
+      rainRatio  = Math.max(0.5, Math.min(allAvg > 0 ? avg(realRainVals)  / allAvg : 0.85, 1.0));
+      sunnyRatio = Math.max(1.0, Math.min(allAvg > 0 ? avg(realSunnyVals) / allAvg : 1.15, 1.5));
+      weatherDataNote = `天気データ ${realRainVals.length + realSunnyVals.length}件から実測`;
+    } else {
+      const sorted    = [...records].sort((a, b) => a.amount - b.amount);
+      const cutLow    = Math.ceil(n * 0.3);
+      const cutHigh   = Math.floor(n * 0.7);
+      const rainVals  = sorted.slice(0, cutLow).map(r => r.amount);
+      const sunnyVals = sorted.slice(cutHigh).map(r => r.amount);
+      rainRatio  = allAvg > 0 ? avg(rainVals)  / allAvg : 0.85;
+      sunnyRatio = allAvg > 0 ? avg(sunnyVals) / allAvg : 1.15;
+      weatherDataNote = null;
+    }
 
-    // ── 店舗傾向の自動判定 ──
     const weekendAvg     = avg([...byDow[0], ...byDow[6]]);
     const weekdayOnlyAvg = avg(weekdayVals);
     let storePattern = 'standard';
@@ -425,7 +509,7 @@ service cloud.firestore {
       }
     }
 
-    return { weekdayAvg, friAvg, satAvg, sunAvg, rainRatio, sunnyRatio, storePattern, patternLabel, patternNote };
+    return { weekdayAvg, friAvg, satAvg, sunAvg, rainRatio, sunnyRatio, storePattern, patternLabel, patternNote, weatherDataNote }; // [UPDATED]
   }
 
   // ─── PREDICTION CALC ───
@@ -435,7 +519,6 @@ service cloud.firestore {
     const dateKey   = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
     const isHoliday = holidays && holidays[dateKey];
 
-    // baseの選択：祝日・日曜は同じ扱い
     let base = 0;
     if (dow === 0 || isHoliday) base = sd.sun     || sd.weekend || 0;
     else if (dow === 6)         base = sd.sat     || sd.weekend || 0;
@@ -443,20 +526,19 @@ service cloud.firestore {
     else                        base = sd.weekday || 0;
     if (!base) return null;
 
-    // multiplierの計算
-    let multiplier = 2; // デフォルト: 1pt = 2%（保守的な値）
+    let multiplier = 2;
     const coeff = sd.coefficients;
     if (coeff && coeff.sunnyRatio && coeff.rainRatio) {
       if (wScore > 0 && coeff.sunnyRatio !== 1) {
         const sunnyPct = (coeff.sunnyRatio - 1) * 100;
-        multiplier = sunnyPct / 3; // 天気スコア3ptで晴れ効果フル
+        multiplier = sunnyPct / 3;
       } else if (wScore < 0 && coeff.rainRatio !== 1) {
         const rainPct = (1 - coeff.rainRatio) * 100;
         multiplier = rainPct / 3;
       } else {
-        multiplier = 2; // 曇りの日はデフォルト
+        multiplier = 2;
       }
-      multiplier = Math.max(1, Math.min(multiplier, 8)); // 1〜8%/ptに制限
+      multiplier = Math.max(1, Math.min(multiplier, 8));
     }
 
     const pct    = totalScore * multiplier;
@@ -500,16 +582,13 @@ service cloud.firestore {
     const zip = zipcode.replace(/[^0-9]/g, '');
     if (zip.length !== 7) return null;
     try {
-      // HeartRails Geo API（CORS対応・無料・緯度経度も直接返す）
       const res = await fetch(
         `https://geoapi.heartrails.com/api/json?method=searchByPostal&postal=${zip}`
       );
       const data = await res.json();
       if (!data.response || !data.response.location || !data.response.location[0]) return null;
-
       const loc = data.response.location[0];
       const addressText = loc.prefecture + loc.city + loc.town;
-
       return {
         lat:     parseFloat(loc.y),
         lon:     parseFloat(loc.x),
@@ -545,13 +624,34 @@ service cloud.firestore {
     return `${d.getFullYear()}/${d.getMonth()+1}/${d.getDate()}`;
   }
 
+  // ─── SCORE ANIMATION ───
+  function animateScore() {
+    document.querySelectorAll('.hero-score-num[data-target]').forEach(el => {
+      const target = parseInt(el.dataset.target);
+      const prefix = target >= 0 ? '+' : '';
+      const startTime = Date.now();
+      const duration  = 600;
+      function update() {
+        const elapsed  = Date.now() - startTime;
+        const progress = Math.min(elapsed / duration, 1);
+        const eased    = 1 - Math.pow(1 - progress, 3);
+        const current  = Math.round(eased * target);
+        el.textContent = (current >= 0 ? '+' : '') + current;
+        if (progress < 1) requestAnimationFrame(update);
+        else el.textContent = prefix + target;
+      }
+      requestAnimationFrame(update);
+    });
+  }
+
   // ─── SCORE CARD HTML ───
-  function buildScoreCard(label, date, wScore, cScore) {
+  function buildScoreCard(label, date, wScore, cScore, weekContext) {
     const total   = wScore.score + cScore.score;
     const pred    = storeData ? calcPrediction(total, storeData, date, wScore.score, window._holidays) : null;
     const dow     = '日月火水木金土'[date.getDay()];
-    const dateStr = formatDate(date) + `（${dow}）`;
+    const dateStr = `${date.getMonth()+1}月${date.getDate()}日（${dow}）`;
     const cls     = total >= 5 ? 'high' : total >= 0 ? 'mid' : 'low';
+    const isToday = label === 'Today';
 
     let action = '';
     if (total >= 8)       action = '仕込みを通常の1.3倍に。スタッフ+1名を検討。';
@@ -560,42 +660,98 @@ service cloud.firestore {
     else if (total >= -3) action = '仕込みを少し抑えめに。閑散が予想されます。';
     else                  action = '仕込みを大幅に絞る。最低限シフトを推奨。';
 
-    const factors = [];
-    if (wScore.score !== 0) factors.push({ label: wScore.detail, pt: wScore.score });
-    factors.push(...cScore.factors);
-    const fHtml = factors.map(f =>
+    const allFactors = [];
+    if (wScore.score !== 0) allFactors.push({ label: wScore.detail || wScore.label, pt: wScore.score });
+    allFactors.push(...cScore.factors);
+
+    const topFactors = [...allFactors].sort((a, b) => Math.abs(b.pt) - Math.abs(a.pt)).slice(0, 3);
+    const tagHtml = topFactors.map(f =>
+      `<span class="factor-tag ${f.pt > 0 ? 'pos' : 'neg'}">${f.label}</span>`
+    ).join('');
+
+    const factorRowsHtml = allFactors.map(f =>
       `<div class="factor-row">
         <span class="factor-label">${f.label}</span>
         <span class="factor-pt ${f.pt >= 0 ? 'pos' : 'neg'}">${f.pt >= 0 ? '+' : ''}${f.pt}pt</span>
       </div>`
     ).join('') || '<div class="factor-row"><span class="factor-label">特記事項なし</span></div>';
 
-    const predHtml = pred
-      ? `<div class="pred-box">
-          <div><div class="pred-label-sm">予測売上</div><div class="pred-amount">¥${pred.amount.toLocaleString()}</div></div>
-          <div class="pred-pct">${pred.pct >= 0 ? '平均比 +' : '平均比 '}${pred.pct}%</div>
+    const contextBadge = weekContext
+      ? `<div class="score-context-badge">${weekContext}</div>`
+      : '';
+
+    const avgPct = pred ? pred.pct : null;
+    const predSection = pred
+      ? `<div class="pred-row">
+          <div>
+            <div class="pred-label">予測売上</div>
+            <div class="pred-amount">¥${pred.amount.toLocaleString()}</div>
+          </div>
+          <div class="pred-pct ${pred.pct >= 0 ? 'pos' : 'neg'}">平均比<br>${pred.pct >= 0 ? '+' : ''}${pred.pct}%</div>
         </div>`
-      : `<div class="pred-box"><div class="pred-label-sm">予測売上</div><div style="font-size:13px;color:rgba(255,255,255,0.4);">売上データを設定してください</div></div>`;
+      : `<div class="pred-row pred-empty">
+          <div class="pred-empty-text">まだ予測が育っていません。<br>昨日の売上を入力しよう</div>
+        </div>`;
+
+    const delay1 = isToday ? '0s'    : '0s';
+    const delay2 = isToday ? '0.1s'  : '0.1s';
+    const delay3 = isToday ? '0.2s'  : '0.2s';
 
     return `
-      <div class="score-main-card">
-        <div class="score-card-top"></div>
-        <div class="score-card-body">
-          <div class="score-card-header">
+      <div class="hero-card ${cls} card-animate" style="--delay:${delay1}">
+        <div class="hero-card-accent ${cls}"></div>
+        <div class="hero-card-body">
+          <div class="hero-top-row">
             <div>
-              <div class="score-label-sm">${label}</div>
-              <div class="score-date-val">${dateStr}</div>
+              <div class="hero-store-name">${storeData?.name || ''}</div>
+              <div class="hero-date">${dateStr}</div>
             </div>
-            <div class="score-badge">${label === 'Today' ? '本日' : '翌日'}</div>
+            <div class="hero-label-badge ${cls}">${isToday ? '今日' : '明日'}</div>
           </div>
-          <div class="score-display">
-            <div class="score-big ${cls}">${total >= 0 ? '+' : ''}${total}</div>
-            <div class="score-unit">pt</div>
+          <div class="hero-action">${action}</div>
+          <div class="hero-score-row">
+            <div class="hero-score-num ${cls}" data-target="${total}">${total >= 0 ? '+' : ''}0</div>
+            <div class="hero-score-unit">pt</div>
+            <div class="hero-score-sublabel">Hi Score</div>
+            ${contextBadge}
           </div>
-          <div class="score-caption">Hi Score</div>
-          <div class="factor-list">${fHtml}</div>
-          ${predHtml}
-          <div class="action-bar"><div class="action-dot"></div><span>${action}</span></div>
+          <div class="hero-tags">${tagHtml}</div>
+        </div>
+      </div>
+      <div class="pred-card card-animate" style="--delay:${delay2}">
+        ${predSection}
+      </div>
+      <details class="factor-detail card-animate" style="--delay:${delay3}">
+        <summary class="factor-detail-summary">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
+          スコア内訳を見る
+        </summary>
+        <div class="factor-list">${factorRowsHtml}</div>
+      </details>`;
+  }
+
+  // ─── TOMORROW SUMMARY ───
+  function buildTomorrowSummary(date, wScore, cScore) {
+    const total = wScore.score + cScore.score;
+    const dow   = '日月火水木金土'[date.getDay()];
+    const cls   = total >= 5 ? 'high' : total >= 0 ? 'mid' : 'low';
+
+    let action = '';
+    if (total >= 8)       action = '仕込みを1.3倍に。スタッフ+1名を検討。';
+    else if (total >= 4)  action = '仕込みをやや多めに。通常シフトで対応可。';
+    else if (total >= 0)  action = '通常通りの仕込み・シフトで問題なし。';
+    else if (total >= -3) action = '仕込みを少し抑えめに。閑散が予想されます。';
+    else                  action = '仕込みを大幅に絞る。最低限シフトを推奨。';
+
+    return `
+      <div class="tmr-summary-card card-animate" style="--delay:0.3s" onclick="document.querySelector('[data-tab=tomorrow]').click()">
+        <div class="tmr-summary-left">
+          <div class="tmr-summary-eyebrow">明日 ${date.getMonth()+1}/${date.getDate()}（${dow}）</div>
+          <div class="tmr-summary-action">${action}</div>
+        </div>
+        <div class="tmr-summary-right">
+          <div class="tmr-summary-score ${cls}">${total >= 0 ? '+' : ''}${total}</div>
+          <div class="tmr-summary-link">詳細 →</div>
         </div>
       </div>`;
   }
@@ -611,32 +767,69 @@ service cloud.firestore {
       const today    = new Date();
       const tomorrow = new Date(Date.now() + 86400000);
 
-      // 祝日データをグローバルに保持
       window._holidays = await fetchHolidays();
-
-      const [wToday, wTomorrow] = await Promise.all([
-        fetchWeatherScore(storeData.lat, storeData.lon, today),
-        fetchWeatherScore(storeData.lat, storeData.lon, tomorrow)
-      ]);
       const pattern = storeData?.coefficients?.storePattern || 'standard';
-      const [cToday, cTomorrow] = await Promise.all([
-        getCalendarScore(today, pattern),
-        getCalendarScore(tomorrow, pattern)
-      ]);
 
-      const scorePanel = document.getElementById('score-cards-container');
-      if (scorePanel) {
-        scorePanel.innerHTML =
-          buildScoreCard('Today',    today,    wToday,    cToday) +
-          buildScoreCard('Tomorrow', tomorrow, wTomorrow, cTomorrow);
+      // Parallel fetch: weather × 2 + calendar × 7
+      const results = await Promise.all([
+        fetchWeatherScore(storeData.lat, storeData.lon, today),
+        fetchWeatherScore(storeData.lat, storeData.lon, tomorrow),
+        ...Array.from({length: 7}, (_, i) =>
+          getCalendarScore(new Date(Date.now() + i * 86400000), pattern)
+        )
+      ]);
+      const [wToday, wTomorrow, ...weekCalScores] = results;
+      const cToday    = weekCalScores[0];
+      const cTomorrow = weekCalScores[1];
+
+      // Week context
+      const weekTotals = weekCalScores.map((cal, i) => {
+        const wScore = i === 0 ? wToday.score : i === 1 ? wTomorrow.score : 0;
+        return cal.score + wScore;
+      });
+      const maxWeekScore    = Math.max(...weekTotals);
+      const todayTotal      = wToday.score + cToday.score;
+      const tomorrowTotal   = wTomorrow.score + cTomorrow.score;
+      const todayContext    = todayTotal    >= maxWeekScore ? '今週最高' : '';
+      const tomorrowContext = tomorrowTotal >= maxWeekScore ? '今週最高' : '';
+
+      // Today tab: hero + pred + factor detail
+      const todayContainer = document.getElementById('score-cards-container');
+      if (todayContainer) {
+        todayContainer.innerHTML = buildScoreCard('Today', today, wToday, cToday, todayContext);
       }
 
-      await renderWeekCalendar();
+      // Tomorrow summary (in Today tab)
+      const tmrSummaryEl = document.getElementById('tomorrow-summary-container');
+      if (tmrSummaryEl) {
+        tmrSummaryEl.innerHTML = buildTomorrowSummary(tomorrow, wTomorrow, cTomorrow);
+      }
 
+      // Tomorrow tab: full hero card
+      const tomorrowContainer = document.getElementById('tomorrow-card-container');
+      if (tomorrowContainer) {
+        tomorrowContainer.innerHTML = buildScoreCard('Tomorrow', tomorrow, wTomorrow, cTomorrow, tomorrowContext);
+      }
+
+      // Week calendar
+      const weekDays = weekCalScores.map((cal, i) => ({
+        date:    new Date(Date.now() + i * 86400000),
+        score:   cal.score + (i === 0 ? wToday.score : i === 1 ? wTomorrow.score : 0),
+        factors: cal.factors,
+        dow:     '日月火水木金土'[new Date(Date.now() + i * 86400000).getDay()]
+      }));
+      renderWeekCalendarFromData(weekDays);
+
+      // Yesterday input label + status check
       const yesterday = new Date(Date.now() - 86400000);
       const resultLbl = document.getElementById('result-date-label');
-      if (resultLbl) resultLbl.textContent = formatDate(yesterday) + 'の実績売上';
+      if (resultLbl) resultLbl.textContent = `${yesterday.getMonth()+1}月${yesterday.getDate()}日の売上`;
+      await checkYesterdayResult();
 
+      // Animate scores after DOM is ready
+      setTimeout(animateScore, 50);
+
+      // Accuracy report
       const report = await calcAccuracyReport();
       renderAccuracyReport(report);
 
@@ -647,53 +840,148 @@ service cloud.firestore {
     }
   }
 
-  async function renderWeekCalendar() {
-    const days = [];
-    const pattern = storeData?.coefficients?.storePattern || 'standard';
-    for (let i = 0; i <= 6; i++) {
-      const d   = new Date(Date.now() + i * 86400000);
-      const cal = await getCalendarScore(d, pattern);
-      days.push({ date: d, score: cal.score, dow: '日月火水木金土'[d.getDay()] });
-    }
-    const maxScore = Math.max(...days.map(d => d.score), 1);
-    const minScore = Math.min(...days.map(d => d.score), 0);
-    const topDay   = days.reduce((a, b) => a.score > b.score ? a : b);
-    const html = days.map(d => {
-      const isTop  = d.date.toDateString() === topDay.date.toDateString();
-      const height = Math.max(8, Math.round(((d.score - minScore) / (maxScore - minScore + 1)) * 60) + 8);
+  // ─── CHECK YESTERDAY RESULT ───
+  async function checkYesterdayResult() {
+    try {
+      const yesterday = new Date(Date.now() - 86400000);
+      const dateStr   = yesterday.toISOString().slice(0, 10);
+      const companyId = userProfile?.companyId || currentUser?.uid;
+      if (!companyId || !currentStoreId) return;
+      const q = query(
+        collection(db, 'companies', companyId, 'stores', currentStoreId, 'results'),
+        where('date', '==', dateStr),
+        limit(1)
+      );
+      const snap = await getDocs(q);
+      const enteredEl = document.getElementById('yesterday-entered');
+      const formEl    = document.getElementById('yesterday-form');
+      if (!snap.empty) {
+        const data = snap.docs[0].data();
+        if (enteredEl) {
+          enteredEl.innerHTML = `<span class="entered-check">✓</span> 入力済み ¥${(data.actual || 0).toLocaleString()}`;
+          enteredEl.style.display = 'flex';
+        }
+        if (formEl) formEl.style.display = 'none';
+      } else {
+        if (enteredEl) enteredEl.style.display = 'none';
+        if (formEl)    formEl.style.display    = 'block';
+      }
+    } catch(e) { /* silently ignore */ }
+  }
+
+  // ─── WEEK CALENDAR (data-driven) ───
+  function renderWeekCalendarFromData(weekDays) {
+    window._weekDays = weekDays;
+    const maxScore = Math.max(...weekDays.map(d => d.score), 1);
+    const minScore = Math.min(...weekDays.map(d => d.score), 0);
+    const topDay   = weekDays.reduce((a, b) => a.score > b.score ? a : b);
+
+    const html = weekDays.map((d, i) => {
+      const isTop   = d.date.toDateString() === topDay.date.toDateString();
+      const range   = maxScore - minScore + 1;
+      const height  = Math.max(8, Math.round(((d.score - minScore) / range) * 80) + 8);
+      const cls     = d.score >= 5 ? 'hi' : d.score >= 2 ? 'mid' : d.score >= 0 ? 'low' : 'neg';
+      const isToday = i === 0;
       return `
-        <div class="week-col ${isTop ? 'top' : ''}">
-          <div class="week-score">${d.score >= 0 ? '+' : ''}${d.score}</div>
-          <div class="week-bar-wrap"><div class="week-bar ${d.score >= 5 ? 'hi' : d.score >= 2 ? 'mid' : d.score >= 0 ? 'low' : 'neg'}" style="height:${height}px"></div></div>
+        <div class="week-col ${isTop ? 'top' : ''} ${isToday ? 'today' : ''}"
+             onclick="showWeekPopover(this, ${i})" style="cursor:pointer;">
+          <div class="week-score ${d.score >= 5 ? 'high' : d.score >= 0 ? 'mid' : 'low'}">${d.score >= 0 ? '+' : ''}${d.score}</div>
+          <div class="week-bar-wrap">
+            <div class="week-bar ${cls}" style="height:${height}px"></div>
+          </div>
           <div class="week-dow">${d.dow}</div>
           <div class="week-date">${d.date.getMonth()+1}/${d.date.getDate()}</div>
           ${isTop ? '<div class="week-star">山場</div>' : ''}
         </div>`;
     }).join('');
+
     const el = document.getElementById('week-calendar');
     if (el) el.innerHTML = html;
   }
+
+  async function renderWeekCalendar() {
+    const days    = [];
+    const pattern = storeData?.coefficients?.storePattern || 'standard';
+    for (let i = 0; i <= 6; i++) {
+      const d   = new Date(Date.now() + i * 86400000);
+      const cal = await getCalendarScore(d, pattern);
+      days.push({ date: d, score: cal.score, factors: cal.factors, dow: '日月火水木金土'[d.getDay()] });
+    }
+    renderWeekCalendarFromData(days);
+  }
+
+  window.showWeekPopover = function(el, idx) {
+    const day = window._weekDays?.[idx];
+    if (!day) return;
+    document.querySelectorAll('.week-popover').forEach(p => p.remove());
+
+    const popover = document.createElement('div');
+    popover.className = 'week-popover';
+    const factors = day.factors.slice(0, 6);
+    const factorHtml = factors.map(f =>
+      `<div class="popover-factor">
+        <span>${f.label}</span>
+        <span class="${f.pt >= 0 ? 'pos' : 'neg'}">${f.pt >= 0 ? '+' : ''}${f.pt}pt</span>
+      </div>`
+    ).join('');
+    popover.innerHTML = `
+      <div class="popover-header">
+        ${day.date.getMonth()+1}/${day.date.getDate()}（${day.dow}）
+        <strong class="popover-score ${day.score >= 5 ? 'high' : day.score >= 0 ? 'mid' : 'low'}">
+          ${day.score >= 0 ? '+' : ''}${day.score}pt
+        </strong>
+      </div>
+      <div class="popover-factors">${factorHtml || '<div class="popover-factor"><span>特記事項なし</span></div>'}</div>`;
+
+    const weekEl = document.getElementById('week-calendar');
+    if (weekEl) weekEl.appendChild(popover);
+
+    setTimeout(() => {
+      document.addEventListener('click', function closePopover(e) {
+        if (!popover.contains(e.target) && !el.contains(e.target)) {
+          popover.remove();
+          document.removeEventListener('click', closePopover);
+        }
+      });
+    }, 50);
+  };
 
   function renderAccuracyReport(report) {
     const el = document.getElementById('accuracy-content');
     if (!el) return;
     if (!report || report.days < 3) {
+      const days = report?.days || 0;
+      const remaining = Math.max(0, 30 - days);
       el.innerHTML = `
         <div class="acc-empty">
-          <div class="acc-empty-num">0日</div>
+          <div class="acc-empty-icon">📊</div>
+          <div class="acc-empty-title">予測がまだ育っていません</div>
           <div class="acc-empty-msg">売上を入力すると、あなたの店専用の予測に育ちます。<br>3日分入力するとスタートします。</div>
-          <div class="acc-progress-bar"><div class="acc-progress-fill" style="width:${Math.min((report?.days||0)/30*100,100)}%"></div></div>
-          <div class="acc-progress-label">${report?.days||0} / 30日でフル精度</div>
+          <div class="acc-progress-wrap">
+            <div class="acc-progress-bar"><div class="acc-progress-fill" style="width:${Math.min(days/30*100,100)}%"></div></div>
+            <div class="acc-progress-label">${days} / 30日でフル精度${remaining > 0 ? `　あと${remaining}日` : ''}</div>
+          </div>
         </div>`;
       return;
     }
     const acc = report.accuracy;
+    const remaining = Math.max(0, 30 - report.days);
     el.innerHTML = `
       <div class="acc-stats">
-        <div class="acc-stat-item"><div class="acc-stat-num ${acc >= 80 ? 'good' : acc >= 60 ? 'mid' : 'low'}">${acc}%</div><div class="acc-stat-label">予測精度</div></div>
-        <div class="acc-stat-item"><div class="acc-stat-num">${report.days}日</div><div class="acc-stat-label">記録日数</div></div>
-        <div class="acc-stat-item"><div class="acc-stat-num">${report.count}件</div><div class="acc-stat-label">分析件数</div></div>
+        <div class="acc-stat-item">
+          <div class="acc-stat-num ${acc >= 80 ? 'good' : acc >= 60 ? 'mid' : 'low'}">${acc}%</div>
+          <div class="acc-stat-label">予測精度</div>
+        </div>
+        <div class="acc-stat-item">
+          <div class="acc-stat-num">${report.days}日</div>
+          <div class="acc-stat-label">記録日数</div>
+        </div>
+        <div class="acc-stat-item">
+          <div class="acc-stat-num">${report.count}件</div>
+          <div class="acc-stat-label">分析件数</div>
+        </div>
       </div>
+      ${remaining > 0 ? `<div class="acc-progress-wrap" style="margin-bottom:16px"><div class="acc-progress-bar"><div class="acc-progress-fill" style="width:${Math.min(report.days/30*100,100)}%"></div></div><div class="acc-progress-label">あと${remaining}日入力で精度MAX</div></div>` : ''}
       ${report.rainTrend !== null ? `
       <div class="acc-trend">
         <div class="acc-trend-label">雨の日の売上傾向</div>
@@ -731,7 +1019,7 @@ service cloud.firestore {
   async function renderOverview() {
     const el = document.getElementById('overview-cards');
     if (!el) return;
-    el.innerHTML = '<div style="color:#94A3B8;font-size:13px;">読み込み中...</div>';
+    el.innerHTML = '<div style="color:#94A3B8;font-size:13px;padding:20px 0;">読み込み中...</div>';
     const today    = new Date();
     const tomorrow = new Date(Date.now() + 86400000);
     const cards = await Promise.all(storeList.map(async store => {
@@ -746,20 +1034,15 @@ service cloud.firestore {
       ]);
       const totalToday = wToday.score + cToday.score;
       const totalTmrw  = wTmrw.score  + cTmrw.score;
-      const cls = totalToday >= 5 ? '#22C55E' : totalToday >= 0 ? '#F59E0B' : '#EF4444';
+      const cls = totalToday >= 5 ? 'high' : totalToday >= 0 ? 'mid' : 'low';
       return `
-        <div style="background:white;border:1.5px solid #E2E8F0;border-radius:16px;
-          padding:20px 24px;margin-bottom:12px;display:flex;align-items:center;
-          justify-content:space-between;box-shadow:0 2px 8px rgba(0,0,0,0.05);cursor:pointer;"
-          onclick="switchToStore('${store.id}')">
+        <div class="overview-card" onclick="switchToStore('${store.id}')">
           <div>
             <div style="font-size:15px;font-weight:700;color:#0F172A;margin-bottom:4px;">${store.name}</div>
             <div style="font-size:12px;color:#64748B;">${store.address || ''}</div>
           </div>
           <div style="text-align:right;">
-            <div style="font-family:'DM Mono',monospace;font-size:28px;font-weight:500;color:${cls};line-height:1;">
-              ${totalToday >= 0 ? '+' : ''}${totalToday}
-            </div>
+            <div class="overview-score ${cls}">${totalToday >= 0 ? '+' : ''}${totalToday}</div>
             <div style="font-size:10px;color:#94A3B8;letter-spacing:0.1em;margin-top:2px;">TODAY</div>
             <div style="font-size:12px;color:#64748B;margin-top:4px;">明日 ${totalTmrw >= 0 ? '+' : ''}${totalTmrw}pt</div>
           </div>
@@ -774,11 +1057,11 @@ service cloud.firestore {
     const sel = document.getElementById('store-selector');
     if (sel) sel.value = storeId;
     document.querySelectorAll('.nav-tab').forEach(t => t.classList.remove('active'));
-    const scoreTab = document.querySelector('[data-tab="score"]');
-    if (scoreTab) scoreTab.classList.add('active');
+    const todayTab = document.querySelector('[data-tab="today"]');
+    if (todayTab) todayTab.classList.add('active');
     document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
-    const scorePanel = document.getElementById('tab-score');
-    if (scorePanel) scorePanel.classList.add('active');
+    const todayPanel = document.getElementById('tab-today');
+    if (todayPanel) todayPanel.classList.add('active');
     renderDashboard();
   };
 
@@ -787,10 +1070,8 @@ service cloud.firestore {
     if (user) {
       currentUser = user;
 
-      // userプロフィール取得
       const profileSnap = await getDoc(doc(db, 'users', user.uid));
       if (!profileSnap.exists()) {
-        // プロフィール未作成 = 新規ユーザー → デフォルトプロフィールを自動生成
         userProfile = { role: 'store', companyId: user.uid, storeId: null };
         await setDoc(doc(db, 'users', user.uid), userProfile);
         setLoading(null);
@@ -822,7 +1103,6 @@ service cloud.firestore {
           renderDashboard();
         }
       } else {
-        // store ロール
         currentStoreId = storeId;
         if (!currentStoreId) {
           setLoading(null);
@@ -913,7 +1193,6 @@ service cloud.firestore {
       if (!zipcode) { showToast('郵便番号を入力してください', 'error'); return; }
 
       try {
-        // コピペデータ解析
         const pasteText  = document.getElementById('setup-paste-data').value.trim();
         let pasteRecords = [];
         let coefficients = null;
@@ -922,7 +1201,6 @@ service cloud.firestore {
           if (pasteRecords.length > 0) {
             coefficients = calculateCoefficients(pasteRecords);
             if (coefficients) {
-              // 手入力が空の場合のみコピペデータで補完
               if (!weekday && coefficients.weekdayAvg) { weekday = coefficients.weekdayAvg; document.getElementById('setup-weekday').value = weekday; }
               if (!fri     && coefficients.friAvg)     { fri     = coefficients.friAvg;     document.getElementById('setup-fri').value     = fri; }
               if (!sat     && coefficients.satAvg)     { sat     = coefficients.satAvg;     document.getElementById('setup-sat').value     = sat; }
@@ -943,6 +1221,10 @@ service cloud.firestore {
                   dataMsg,
                   coefficients.patternLabel ? `📊 店舗タイプ：${coefficients.patternLabel}` : '',
                   coefficients.patternNote  ? `💡 ${coefficients.patternNote}` : '',
+                  // [UPDATED] 天気データが実測で使われた場合のみ表示
+                  coefficients.weatherDataNote
+                    ? `🌤 天気係数：${coefficients.weatherDataNote}（より正確な予測が可能です）`
+                    : `🌤 天気係数：売上分布から推定（天気列を追加するとさらに精度向上）`,
                 ].filter(Boolean);
                 fb.innerHTML = lines.join('<br>');
                 fb.style.display = 'block';
@@ -964,7 +1246,6 @@ service cloud.firestore {
         setLoading('設定を保存中...');
         const companyId = userProfile?.companyId || currentUser.uid;
         const data = { name, address, zipcode, lat: geo.lat, lon: geo.lon, weekday, fri, sat, sun, createdAt: new Date().toISOString() };
-        // 手動選択されたタイプを取得
         const selectedType = document.querySelector('input[name="store-type"]:checked')?.value || 'auto';
         if (selectedType !== 'auto') {
           const manualLabels = {
@@ -997,7 +1278,6 @@ service cloud.firestore {
           storeList.push({ id: currentStoreId, ...data });
         }
         storeData = { id: currentStoreId, ...data };
-        // userProfileのstoreIdを更新
         if (!userProfile.storeId) {
           userProfile.storeId = currentStoreId;
           await setDoc(doc(db, 'users', currentUser.uid), { storeId: currentStoreId }, { merge: true });
@@ -1053,16 +1333,16 @@ service cloud.firestore {
           }
         );
         document.getElementById('result-amount').value = '';
-        if (document.getElementById('result-memo')) document.getElementById('result-memo').value = '';
+        if (document.getElementById('result-memo'))  document.getElementById('result-memo').value  = '';
         if (document.getElementById('result-event')) document.getElementById('result-event').value = '0';
         setLoading(null);
         showToast('売上を保存しました', 'success');
+        // Update entered status
+        await checkYesterdayResult();
         try {
           const report = await calcAccuracyReport();
           renderAccuracyReport(report);
-        } catch(e) {
-          // 分析レポートの更新失敗は無視（保存は成功している）
-        }
+        } catch(e) { /* ignore */ }
       } catch(e) {
         setLoading(null);
         showToast('保存に失敗しました: ' + e.message, 'error');
@@ -1077,7 +1357,8 @@ service cloud.firestore {
         tab.classList.add('active');
         document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
         document.getElementById(`tab-${tab.dataset.tab}`).classList.add('active');
-        if (tab.dataset.tab === 'overview') renderOverview();
+        if (tab.dataset.tab === 'overview')  renderOverview();
+        if (tab.dataset.tab === 'tomorrow')  setTimeout(animateScore, 50);
       });
     });
 
@@ -1098,7 +1379,6 @@ service cloud.firestore {
         document.getElementById('setup-fri').value     = storeData.fri     || '';
         document.getElementById('setup-sat').value     = storeData.sat     || '';
         document.getElementById('setup-sun').value     = storeData.sun     || '';
-        // 店舗タイプを復元
         const savedPattern  = storeData?.coefficients?.storePattern;
         const isManual      = storeData?.coefficients?.manualOverride;
         const typeToRestore = (savedPattern && isManual) ? savedPattern : 'auto';
@@ -1121,7 +1401,6 @@ service cloud.firestore {
       if (e.key === 'Enter') document.getElementById('btn-login').click();
     });
 
-    // 郵便番号検索
     document.getElementById('btn-zip-search').addEventListener('click', async () => {
       const zip = document.getElementById('setup-zipcode').value.trim();
       if (!zip) { showToast('郵便番号を入力してください', 'error'); return; }
@@ -1221,55 +1500,101 @@ service cloud.firestore {
 </script>
 
 <style>
+/* ────────────────────────────────────────
+   DESIGN TOKENS
+──────────────────────────────────────── */
 :root {
   --primary:      #2563EB;
   --primary-dark: #1D4ED8;
   --accent:       #F59E0B;
-  --sidebar-bg:   #FFFFFF;
-  --sidebar-dark: #F1F5FD;
-  --navy:         #F8F9FC;
-  --white:        #0F172A;
-  --border-dark:  #E2E8F0;
-  --font:         'Noto Sans JP', sans-serif;
-  --mono:         'DM Mono', monospace;
-}
-* { margin:0; padding:0; box-sizing:border-box; }
-html, body { height:100%; font-family:var(--font); font-size:15px; background:var(--navy); color:#0F172A; overflow-x:hidden; }
 
-/* ── LOADING ── */
+  /* Score color system */
+  --score-high:    #F59E0B;
+  --score-mid:     #2563EB;
+  --score-low:     #94A3B8;
+  --score-high-bg: #FFFBEB;
+  --score-mid-bg:  #EFF6FF;
+  --score-low-bg:  #F8FAFC;
+
+  --bg:     #F0F4F8;
+  --surface:#FFFFFF;
+  --border: #E2E8F0;
+  --text:   #0F172A;
+  --text-2: #64748B;
+  --text-3: #94A3B8;
+
+  --font: 'Noto Sans JP', sans-serif;
+  --mono: 'DM Mono', monospace;
+
+  --r-card: 16px;
+  --gap:    16px;
+  --pad:    24px;
+}
+
+* { margin:0; padding:0; box-sizing:border-box; }
+html, body {
+  height:100%; font-family:var(--font); font-size:15px;
+  background:var(--bg); color:var(--text); overflow-x:hidden;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* ────────────────────────────────────────
+   ANIMATIONS
+──────────────────────────────────────── */
+@keyframes spin       { to { transform:rotate(360deg); } }
+@keyframes cardFadeIn { from { opacity:0; transform:translateY(12px); } to { opacity:1; transform:none; } }
+
+.card-animate {
+  animation: cardFadeIn 0.4s ease both;
+  animation-delay: var(--delay, 0s);
+}
+
+/* ────────────────────────────────────────
+   LOADING
+──────────────────────────────────────── */
 #loading-overlay {
-  display:none; position:fixed; inset:0; background:rgba(248,249,252,0.9);
-  z-index:999; align-items:center; justify-content:center; flex-direction:column; gap:16px;
+  display:none; position:fixed; inset:0;
+  background:rgba(240,244,248,0.92);
+  z-index:999; align-items:center; justify-content:center;
+  flex-direction:column; gap:16px;
+  backdrop-filter:blur(4px);
 }
 .loading-spinner {
-  width:40px; height:40px; border:3px solid rgba(37,99,235,0.2);
-  border-top-color:var(--primary); border-radius:50%; animation:spin 0.8s linear infinite;
+  width:36px; height:36px;
+  border:3px solid rgba(37,99,235,0.15);
+  border-top-color:var(--primary);
+  border-radius:50%;
+  animation:spin 0.8s linear infinite;
 }
-@keyframes spin { to { transform:rotate(360deg); } }
-#loading-msg { font-size:14px; color:#64748B; font-family:var(--mono); letter-spacing:0.08em; }
+#loading-msg { font-size:13px; color:var(--text-2); font-family:var(--mono); letter-spacing:0.08em; }
 
-/* ── TOAST ── */
+/* ────────────────────────────────────────
+   TOAST
+──────────────────────────────────────── */
 .toast {
-  position:fixed; bottom:24px; left:50%; transform:translateX(-50%) translateY(80px);
-  background:#fff; border:1.5px solid #E2E8F0; color:#0F172A;
-  padding:12px 24px; border-radius:10px; font-size:13px; z-index:998;
-  transition:transform 0.3s; pointer-events:none; white-space:nowrap;
-  box-shadow:0 4px 16px rgba(0,0,0,0.08);
+  position:fixed; bottom:24px; left:50%;
+  transform:translateX(-50%) translateY(80px);
+  background:var(--surface); border:1.5px solid var(--border);
+  color:var(--text); padding:12px 24px; border-radius:10px;
+  font-size:13px; z-index:998; transition:transform 0.3s;
+  pointer-events:none; white-space:nowrap;
+  box-shadow:0 4px 20px rgba(0,0,0,0.1);
 }
 .toast.show    { transform:translateX(-50%) translateY(0); }
-.toast.success { border-color:rgba(22,163,74,0.5); }
-.toast.error   { border-color:rgba(220,38,38,0.5); }
+.toast.success { border-color:rgba(22,163,74,0.4); }
+.toast.error   { border-color:rgba(220,38,38,0.4); }
 
-/* ── SCREENS ── */
-.screen { display:none; }
+/* ────────────────────────────────────────
+   SCREENS
+──────────────────────────────────────── */
+.screen        { display:none; }
 .screen.active { display:flex; flex-direction:column; min-height:100vh; }
 
-/* ════════════════════════════════
+/* ════════════════════════════════════════
    LP
-════════════════════════════════ */
+════════════════════════════════════════ */
 #screen-lp { background:#fff; color:#111; }
 
-/* Nav */
 .lp-nav {
   position:sticky; top:0; z-index:200;
   display:flex; align-items:center; justify-content:space-between;
@@ -1277,17 +1602,9 @@ html, body { height:100%; font-family:var(--font); font-size:15px; background:va
   background:#fff; border-bottom:1px solid #E5E7EB;
 }
 .lp-nav-links { display:flex; gap:32px; }
-.lp-nav-links a {
-  font-size:14px; color:#374151; text-decoration:none; font-weight:500;
-  transition:color 0.2s;
-}
+.lp-nav-links a { font-size:14px; color:#374151; text-decoration:none; font-weight:500; transition:color 0.2s; }
 .lp-nav-links a:hover { color:var(--primary); }
 .lp-nav-brand { display:flex; align-items:center; gap:10px; }
-.lp-brand-mark {
-  width:36px; height:36px; background:var(--primary); border-radius:8px;
-  display:flex; align-items:center; justify-content:center;
-}
-.lp-brand-mark svg { width:18px; height:18px; stroke:white; fill:none; stroke-width:2.5; stroke-linecap:round; }
 .lp-brand-name { font-family:var(--mono); font-size:20px; font-weight:700; color:#111; }
 .lp-nav-cta {
   padding:10px 24px; background:var(--primary); color:#fff;
@@ -1296,29 +1613,22 @@ html, body { height:100%; font-family:var(--font); font-size:15px; background:va
 }
 .lp-nav-cta:hover { background:var(--primary-dark); }
 
-/* Hero */
 .lp-hero {
   display:flex; align-items:center; justify-content:center;
   gap:60px; padding:80px 40px 72px;
   background:linear-gradient(160deg,#F0F7FF 0%,#fff 65%);
-  flex-wrap:wrap;
-  text-align:center; justify-items:center;
+  flex-wrap:wrap; text-align:center;
 }
-.lp-hero-text { max-width:520px; align-items:center; display:flex; flex-direction:column; }
+.lp-hero-text { max-width:520px; display:flex; flex-direction:column; align-items:center; }
 .lp-hero-badge {
   display:inline-flex; align-items:center; gap:6px;
   background:#EFF6FF; border:1px solid #BFDBFE;
   border-radius:999px; padding:5px 14px; margin-bottom:24px;
   font-size:12px; font-weight:700; color:var(--primary);
 }
-.lp-hero h1 {
-  font-size:clamp(32px,5vw,54px); font-weight:900;
-  line-height:1.2; margin-bottom:20px; color:#0F1922;
-}
+.lp-hero h1 { font-size:clamp(32px,5vw,54px); font-weight:900; line-height:1.2; margin-bottom:20px; color:#0F1922; }
 .lp-hero h1 span { color:var(--primary); }
-.lp-hero p {
-  font-size:17px; color:#6B7280; line-height:1.85; margin:0 auto 36px;
-}
+.lp-hero p { font-size:17px; color:#6B7280; line-height:1.85; margin:0 auto 36px; }
 .lp-hero-btns { display:flex; gap:12px; flex-wrap:wrap; justify-content:center; }
 .lp-btn-primary {
   padding:15px 32px; background:var(--primary); color:#fff;
@@ -1333,7 +1643,6 @@ html, body { height:100%; font-family:var(--font); font-size:15px; background:va
 }
 .lp-btn-ghost:hover { border-color:#9CA3AF; }
 
-/* Score mock UI (LP内 - ダークテーマ維持) */
 .lp-mock {
   background:#1E2A3A; border-radius:20px; padding:24px;
   width:300px; flex-shrink:0;
@@ -1352,95 +1661,50 @@ html, body { height:100%; font-family:var(--font); font-size:15px; background:va
 .lp-mock-pred-label { font-size:10px; color:rgba(255,255,255,0.4); }
 .lp-mock-pred-amount { font-family:var(--mono); font-size:18px; font-weight:500; color:#fff; }
 
-
-/* Section common */
 .lp-section { padding:80px 40px; }
 .lp-section-inner { max-width:1000px; margin:0 auto; }
 .lp-section-head { text-align:center; margin-bottom:56px; }
-.lp-eyebrow {
-  display:inline-block; font-size:12px; font-weight:700; color:var(--primary);
-  letter-spacing:0.12em; text-transform:uppercase; margin-bottom:12px;
-}
+.lp-eyebrow { display:inline-block; font-size:12px; font-weight:700; color:var(--primary); letter-spacing:0.12em; text-transform:uppercase; margin-bottom:12px; }
 .lp-section-head h2 { font-size:clamp(24px,4vw,36px); font-weight:900; color:#0F1922; margin-bottom:12px; }
 .lp-section-head p  { font-size:15px; color:#6B7280; line-height:1.8; }
 
-/* Problem cards */
 .lp-problems { display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:20px; }
-.lp-problem-card {
-  background:#fff; border:1px solid #E5E7EB; border-radius:16px; padding:28px 24px;
-  border-top:3px solid var(--primary);
-}
-.lp-problem-icon {
-  width:48px; height:48px; background:#EFF6FF; border-radius:12px;
-  display:flex; align-items:center; justify-content:center; margin-bottom:16px;
-}
+.lp-problem-card { background:#fff; border:1px solid #E5E7EB; border-radius:16px; padding:28px 24px; border-top:3px solid var(--primary); }
+.lp-problem-icon { width:48px; height:48px; background:#EFF6FF; border-radius:12px; display:flex; align-items:center; justify-content:center; margin-bottom:16px; }
 .lp-problem-icon svg { width:24px; height:24px; stroke:var(--primary); fill:none; stroke-width:2; stroke-linecap:round; }
 .lp-problem-card h3 { font-size:16px; font-weight:700; margin-bottom:8px; color:#111; }
 .lp-problem-card p  { font-size:14px; color:#6B7280; line-height:1.75; }
 
-/* How steps */
 .lp-steps { display:grid; grid-template-columns:repeat(auto-fit,minmax(200px,1fr)); gap:24px; }
 .lp-step { text-align:center; padding:32px 20px; }
-.lp-step-num {
-  width:52px; height:52px; border-radius:50%; background:var(--primary); color:#fff;
-  display:flex; align-items:center; justify-content:center;
-  font-family:var(--mono); font-size:22px; font-weight:500;
-  margin:0 auto 20px;
-}
+.lp-step-num { width:52px; height:52px; border-radius:50%; background:var(--primary); color:#fff; display:flex; align-items:center; justify-content:center; font-family:var(--mono); font-size:22px; font-weight:500; margin:0 auto 20px; }
 .lp-step h3 { font-size:16px; font-weight:700; margin-bottom:8px; color:#111; }
 .lp-step p  { font-size:14px; color:#6B7280; line-height:1.75; }
 
-/* Features */
 .lp-features-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(280px,1fr)); gap:24px; }
-.lp-feature-card {
-  background:#fff; border:1px solid #E5E7EB; border-radius:16px; padding:32px 28px;
-  display:flex; gap:20px; align-items:flex-start;
-}
-.lp-feature-icon {
-  width:52px; height:52px; border-radius:12px; background:#EFF6FF; flex-shrink:0;
-  display:flex; align-items:center; justify-content:center;
-}
+.lp-feature-card { background:#fff; border:1px solid #E5E7EB; border-radius:16px; padding:32px 28px; display:flex; gap:20px; align-items:flex-start; }
+.lp-feature-icon { width:52px; height:52px; border-radius:12px; background:#EFF6FF; flex-shrink:0; display:flex; align-items:center; justify-content:center; }
 .lp-feature-icon svg { width:24px; height:24px; stroke:var(--primary); fill:none; stroke-width:2; stroke-linecap:round; }
 .lp-feature-card h3 { font-size:16px; font-weight:700; margin-bottom:8px; color:#111; }
 .lp-feature-card p  { font-size:14px; color:#6B7280; line-height:1.75; }
 
-/* Evidence */
 .lp-evidence-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:20px; }
-.lp-evidence-card {
-  background:#fff; border:1px solid #E5E7EB; border-radius:16px; padding:28px 24px;
-}
-.lp-evidence-icon {
-  width:44px; height:44px; background:#EFF6FF; border-radius:10px;
-  display:flex; align-items:center; justify-content:center; margin-bottom:16px;
-}
+.lp-evidence-card { background:#fff; border:1px solid #E5E7EB; border-radius:16px; padding:28px 24px; }
+.lp-evidence-icon { width:44px; height:44px; background:#EFF6FF; border-radius:10px; display:flex; align-items:center; justify-content:center; margin-bottom:16px; }
 .lp-evidence-icon svg { width:22px; height:22px; stroke:var(--primary); fill:none; stroke-width:2; stroke-linecap:round; stroke-linejoin:round; }
 .lp-evidence-title { font-size:15px; font-weight:700; color:#0F1922; margin-bottom:8px; line-height:1.4; }
 .lp-evidence-desc { font-size:13px; color:#6B7280; line-height:1.75; }
 
-/* CTA section */
-.lp-cta {
-  padding:96px 40px; text-align:center;
-  background:linear-gradient(135deg,#0F1922 0%,#1E3A5F 50%,var(--primary) 100%);
-}
+.lp-cta { padding:96px 40px; text-align:center; background:linear-gradient(135deg,#0F1922 0%,#1E3A5F 50%,var(--primary) 100%); }
 .lp-cta h2 { font-size:clamp(28px,5vw,44px); font-weight:900; color:#fff; margin-bottom:16px; }
 .lp-cta p  { font-size:16px; color:rgba(255,255,255,0.7); margin-bottom:40px; line-height:1.8; }
 .lp-cta-btns { display:flex; gap:16px; justify-content:center; flex-wrap:wrap; }
-.lp-cta-primary {
-  padding:18px 48px; background:#fff; color:var(--primary);
-  border:none; border-radius:12px; font-family:var(--font);
-  font-size:16px; font-weight:900; cursor:pointer; transition:all 0.2s;
-}
+.lp-cta-primary { padding:18px 48px; background:#fff; color:var(--primary); border:none; border-radius:12px; font-family:var(--font); font-size:16px; font-weight:900; cursor:pointer; transition:all 0.2s; }
 .lp-cta-primary:hover { transform:translateY(-2px); box-shadow:0 12px 32px rgba(0,0,0,0.3); }
 .lp-cta-sub { font-size:13px; color:rgba(255,255,255,0.45); margin-top:20px; }
 
-/* Footer */
-.lp-footer {
-  background:#0F1922; padding:32px 40px;
-  display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:16px;
-}
+.lp-footer { background:#0F1922; padding:32px 40px; display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:16px; }
 .lp-footer-brand { display:flex; align-items:center; gap:8px; }
-.lp-footer-brand-mark { width:28px; height:28px; background:var(--primary); border-radius:6px; display:flex; align-items:center; justify-content:center; }
-.lp-footer-brand-mark svg { width:14px; height:14px; stroke:white; fill:none; stroke-width:2.5; stroke-linecap:round; }
 .lp-footer-brand-name { font-family:var(--mono); font-size:16px; font-weight:700; color:rgba(255,255,255,0.7); }
 .lp-footer-copy { font-size:12px; color:rgba(255,255,255,0.3); }
 
@@ -1454,75 +1718,66 @@ html, body { height:100%; font-family:var(--font); font-size:15px; background:va
   .lp-footer { padding:24px 20px; }
 }
 
-/* ════════════════════════════════
+/* ════════════════════════════════════════
    LOGIN
-════════════════════════════════ */
+════════════════════════════════════════ */
 #screen-login {
   align-items:center; justify-content:center; padding:24px;
   background: radial-gradient(ellipse at 60% 0%, rgba(37,99,235,0.06) 0%, transparent 60%),
               radial-gradient(ellipse at 10% 80%, rgba(245,158,11,0.04) 0%, transparent 50%),
-              var(--navy);
+              var(--bg);
 }
 .login-card {
   width:100%; max-width:400px;
-  background:#fff; border:none;
-  border-radius:24px; overflow:hidden; padding:0;
+  background:var(--surface); border-radius:24px; overflow:hidden; padding:0;
   box-shadow:0 8px 40px rgba(37,99,235,0.12);
 }
 .login-top  { height:4px; background:linear-gradient(90deg,var(--primary),#60A5FA); }
 .login-body { padding:44px 40px; }
 .login-brand { display:flex; align-items:center; gap:10px; margin-bottom:32px; }
-.brand-mark {
-  width:36px; height:36px; background:var(--primary); border-radius:8px;
-  display:flex; align-items:center; justify-content:center;
-}
+.brand-mark { width:36px; height:36px; background:var(--primary); border-radius:8px; display:flex; align-items:center; justify-content:center; }
 .brand-mark svg { width:18px; height:18px; stroke:white; fill:none; stroke-width:2.5; stroke-linecap:round; }
-.brand-name { font-family:var(--mono); font-size:20px; font-weight:700; color:#0F172A; }
-.login-title { font-size:26px; font-weight:900; margin-bottom:10px; color:#0F172A; }
-.login-sub   { font-size:14px; color:#64748B; margin-bottom:32px; line-height:1.6; }
+.brand-name { font-family:var(--mono); font-size:20px; font-weight:700; color:var(--text); }
+.login-title { font-size:26px; font-weight:900; margin-bottom:10px; color:var(--text); }
 .form-group  { margin-bottom:16px; }
 .form-label  { font-size:13px; color:#475569; font-weight:600; letter-spacing:0.08em; margin-bottom:8px; display:block; }
 .form-input  {
-  width:100%; background:#F8F9FC; border:1.5px solid #E2E8F0;
-  border-radius:10px; padding:14px 16px; color:#0F172A; font-family:var(--font); font-size:15px;
+  width:100%; background:#F8F9FC; border:1.5px solid var(--border);
+  border-radius:10px; padding:14px 16px; color:var(--text);
+  font-family:var(--font); font-size:15px;
   outline:none; transition:border-color 0.2s, box-shadow 0.2s;
 }
-.form-input:focus        { border-color:var(--primary); outline:none; box-shadow:0 0 0 3px rgba(37,99,235,0.1); }
-.form-input::placeholder { color:#94A3B8; }
-.btn-row          { display:flex; gap:10px; margin-top:24px; }
+.form-input:focus        { border-color:var(--primary); box-shadow:0 0 0 3px rgba(37,99,235,0.1); }
+.form-input::placeholder { color:var(--text-3); }
 .btn-full         { flex:1; padding:13px; border:none; border-radius:8px; font-family:var(--font); font-weight:700; font-size:14px; cursor:pointer; transition:all 0.2s; }
 .btn-primary-full { background:var(--primary); color:#fff; }
 .btn-primary-full:hover { background:var(--primary-dark); transform:translateY(-1px); }
-.btn-ghost-full   { background:#F1F5FD; color:#334155; border:1.5px solid #E2E8F0; }
-.btn-ghost-full:hover { background:#E2E8F0; }
-.login-back-lp {
-  text-align:center; margin-top:20px; font-size:13px; color:#94A3B8;
-}
-.login-back-lp a { color:#64748B; cursor:pointer; text-decoration:underline; }
-.login-back-lp a:hover { color:#334155; }
+.login-back-lp { text-align:center; margin-top:20px; font-size:13px; color:var(--text-3); }
+.login-back-lp a { color:var(--text-2); cursor:pointer; text-decoration:underline; }
 
-/* ════════════════════════════════
+/* ════════════════════════════════════════
    SETUP
-════════════════════════════════ */
-#screen-setup { background:var(--navy); }
+════════════════════════════════════════ */
+#screen-setup { background:var(--bg); }
 .setup-header {
-  height:64px; background:#fff; border-bottom:1px solid #E2E8F0;
+  height:64px; background:var(--surface); border-bottom:1px solid var(--border);
   display:flex; align-items:center; padding:0 24px; gap:16px;
-  position:sticky; top:0; z-index:100; box-shadow:0 1px 0 #E2E8F0;
+  position:sticky; top:0; z-index:100;
 }
-.setup-back { background:none; border:none; color:#64748B; font-size:13px; cursor:pointer; font-family:var(--font); transition:color 0.2s; }
-.setup-back:hover { color:#0F172A; }
-.setup-header-title { font-size:17px; font-weight:700; color:#0F172A; }
+.setup-back { background:none; border:none; color:var(--text-2); font-size:13px; cursor:pointer; font-family:var(--font); }
+.setup-back:hover { color:var(--text); }
+.setup-header-title { font-size:17px; font-weight:700; color:var(--text); }
 .setup-body  { padding:32px 24px; max-width:560px; margin:0 auto; }
 .setup-section { margin-bottom:32px; }
 .setup-section-title {
-  font-family:var(--mono); font-size:12px; font-weight:700; color:var(--primary); letter-spacing:0.15em;
-  text-transform:uppercase; margin-bottom:16px; display:flex; align-items:center; gap:8px;
+  font-family:var(--mono); font-size:12px; font-weight:700; color:var(--primary);
+  letter-spacing:0.15em; text-transform:uppercase; margin-bottom:16px;
+  display:flex; align-items:center; gap:8px;
 }
 .setup-section-title::before { content:''; display:block; width:20px; height:1px; background:var(--primary); }
-.setup-card { background:#fff; border:none; border-radius:16px; padding:28px; box-shadow:0 2px 12px rgba(0,0,0,0.06); }
+.setup-card { background:var(--surface); border-radius:var(--r-card); padding:28px; box-shadow:0 2px 12px rgba(0,0,0,0.06); }
 .setup-grid { display:grid; grid-template-columns:1fr 1fr; gap:16px; }
-.form-hint  { font-size:11px; color:#94A3B8; margin-top:5px; }
+.form-hint  { font-size:11px; color:var(--text-3); margin-top:5px; }
 .btn-save {
   width:100%; padding:15px; background:var(--primary); color:#fff; border:none;
   border-radius:10px; font-family:var(--font); font-weight:700; font-size:15px;
@@ -1530,156 +1785,391 @@ html, body { height:100%; font-family:var(--font); font-size:15px; background:va
 }
 .btn-save:hover { background:var(--primary-dark); transform:translateY(-1px); box-shadow:0 8px 24px rgba(37,99,235,0.25); }
 
-/* ════════════════════════════════
+/* ════════════════════════════════════════
    DASHBOARD
-════════════════════════════════ */
-#screen-dashboard { background:#F1F5FD; }
+════════════════════════════════════════ */
+#screen-dashboard { background:var(--bg); }
+
+/* Header */
 .dash-header {
-  height:64px; background:rgba(255,255,255,0.95); border-bottom:1px solid #E2E8F0;
+  height:60px; background:rgba(255,255,255,0.96); border-bottom:1px solid var(--border);
   display:flex; align-items:center; justify-content:space-between; padding:0 20px;
   position:sticky; top:0; z-index:100; backdrop-filter:blur(12px);
-  box-shadow:0 1px 0 #E2E8F0;
 }
 .dash-brand      { display:flex; align-items:center; gap:8px; }
-.dash-brand-mark { width:30px; height:30px; background:var(--primary); border-radius:7px; display:flex; align-items:center; justify-content:center; }
-.dash-brand-mark svg { width:14px; height:14px; stroke:white; fill:none; stroke-width:2.5; stroke-linecap:round; }
-.dash-brand-name { font-family:var(--mono); font-size:17px; font-weight:700; color:#0F172A; }
-.dash-header-right { display:flex; align-items:center; gap:10px; }
-.dash-store-name { font-size:13px; color:#64748B; }
+.dash-brand-name { font-family:var(--mono); font-size:17px; font-weight:700; color:var(--text); }
+.dash-header-right { display:flex; align-items:center; gap:8px; }
+.dash-store-name { font-size:13px; color:var(--text-2); }
 .btn-icon {
-  width:32px; height:32px; background:#F1F5FD; border:1px solid #E2E8F0; border-radius:7px;
-  display:flex; align-items:center; justify-content:center; cursor:pointer; transition:background 0.2s;
+  width:32px; height:32px; background:#F1F5FD; border:1px solid var(--border);
+  border-radius:7px; display:flex; align-items:center; justify-content:center;
+  cursor:pointer; transition:background 0.2s;
 }
-.btn-icon:hover { background:#E2E8F0; }
-.btn-icon svg { width:14px; height:14px; stroke:#64748B; fill:none; stroke-width:2; stroke-linecap:round; }
+.btn-icon:hover { background:var(--border); }
+.btn-icon svg { width:14px; height:14px; stroke:var(--text-2); fill:none; stroke-width:2; stroke-linecap:round; }
 
 /* Nav tabs */
 .nav-tabs {
-  display:flex; background:#fff; border-bottom:1.5px solid #E2E8F0;
-  padding:0 20px; gap:4px; overflow-x:auto; -webkit-overflow-scrolling:touch;
-  box-shadow:0 1px 0 #E2E8F0;
+  display:flex; background:var(--surface); border-bottom:1.5px solid var(--border);
+  padding:0 16px; overflow-x:auto; -webkit-overflow-scrolling:touch;
+  scrollbar-width:none;
 }
+.nav-tabs::-webkit-scrollbar { display:none; }
 .nav-tab {
-  padding:16px 18px; background:none; border:none; color:#94A3B8;
-  font-family:var(--font); font-size:14px; font-weight:600; cursor:pointer; white-space:nowrap;
-  border-bottom:2px solid transparent; transition:all 0.2s; margin-bottom:-1.5px;
+  padding:14px 16px; background:none; border:none; color:var(--text-3);
+  font-family:var(--font); font-size:14px; font-weight:600; cursor:pointer;
+  white-space:nowrap; border-bottom:2px solid transparent;
+  transition:all 0.2s; margin-bottom:-1.5px; flex-shrink:0;
 }
-.nav-tab.active { color:#0F172A; border-bottom-color:var(--primary); }
-.nav-tab:hover  { color:#334155; }
+.nav-tab.active { color:var(--text); border-bottom-color:var(--primary); }
+.nav-tab:hover  { color:var(--text-2); }
 
 /* Tab panels */
 .tab-panels { flex:1; }
-.tab-panel  { display:none; padding:20px; background:#F1F5FD; }
+.tab-panel  { display:none; padding:var(--gap); max-width:480px; margin:0 auto; }
 .tab-panel.active { display:block; }
 
-/* Score cards (今日・明日) */
-#score-cards-container { display:flex; flex-direction:column; gap:20px; }
-.score-main-card {
-  background:#fff; border:none;
-  border-radius:20px; overflow:hidden;
-  box-shadow:0 2px 16px rgba(37,99,235,0.08), 0 1px 4px rgba(0,0,0,0.04);
-  margin-bottom:0;
+/* ── HERO CARD ── */
+.hero-card {
+  border-radius:var(--r-card); overflow:hidden;
+  box-shadow:0 2px 12px rgba(0,0,0,0.06);
+  margin-bottom:var(--gap);
 }
-.score-card-top  { height:4px; background:linear-gradient(90deg,var(--primary),#60A5FA,var(--accent)); }
-.score-card-body { padding:28px; }
-.score-card-header { display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:20px; }
-.score-label-sm { font-family:var(--mono); font-size:11px; color:#94A3B8; letter-spacing:0.15em; text-transform:uppercase; margin-bottom:4px; }
-.score-date-val { font-size:16px; font-weight:700; color:#0F172A; }
-.score-badge { background:#EFF6FF; border:1px solid #DBEAFE; color:var(--primary); font-size:10px; font-weight:500; padding:4px 10px; border-radius:100px; }
-.score-display { display:flex; align-items:baseline; gap:12px; margin-bottom:8px; }
-.score-big      { font-family:var(--mono); font-size:96px; font-weight:500; line-height:1; }
-.score-big.high { color:var(--accent); }
-.score-big.mid  { color:var(--primary); }
-.score-big.low  { color:#94A3B8; }
-.score-unit     { font-family:var(--mono); font-size:28px; color:#94A3B8; }
-.score-caption  { font-family:var(--mono); font-size:10px; color:#94A3B8; letter-spacing:0.1em; text-transform:uppercase; margin-bottom:24px; }
-.factor-list    { border-top:1px solid #F1F5FD; padding-top:20px; margin-bottom:20px; display:flex; flex-direction:column; gap:12px; }
-.factor-row     { display:flex; justify-content:space-between; align-items:center; }
-.factor-label   { font-size:14px; color:#334155; }
-.factor-pt      { font-family:var(--mono); font-size:14px; font-weight:500; }
-.factor-pt.pos  { color:#16A34A; }
-.factor-pt.neg  { color:#DC2626; }
-.factor-icon-box { width:28px; height:28px; border-radius:8px; background:#F8F9FC; display:flex; align-items:center; justify-content:center; }
-.factor-icon-box svg { width:14px; height:14px; }
-.pred-box { background:#EFF6FF; border:1px solid #DBEAFE; border-radius:12px; padding:18px 22px; display:flex; justify-content:space-between; align-items:center; margin-bottom:16px; }
-.pred-label-sm  { font-size:12px; color:#64748B; margin-bottom:6px; }
-.pred-amount    { font-family:var(--mono); font-size:26px; font-weight:700; color:#0F172A; }
-.pred-pct       { font-family:var(--mono); font-size:16px; font-weight:700; color:#16A34A; }
-.action-bar     { display:flex; align-items:center; gap:10px; font-size:13px; color:#475569; padding-top:16px; border-top:1px solid #E2E8F0; }
-.action-dot     { width:8px; height:8px; background:var(--accent); border-radius:50%; flex-shrink:0; }
+.hero-card.high { background:var(--score-high-bg); }
+.hero-card.mid  { background:var(--score-mid-bg); }
+.hero-card.low  { background:var(--score-low-bg); }
 
-/* Week calendar */
-.week-card       { background:#fff; border:none; border-radius:20px; padding:24px; margin-bottom:16px; box-shadow:0 2px 16px rgba(37,99,235,0.08); }
-.week-card-title { font-family:var(--mono); font-size:12px; color:var(--primary); letter-spacing:0.15em; text-transform:uppercase; margin-bottom:20px; }
-#week-calendar   { display:flex; gap:8px; align-items:flex-end; }
-.week-col        { flex:1; display:flex; flex-direction:column; align-items:center; gap:4px; position:relative; }
-.week-col.top .week-bar { background:var(--accent) !important; }
-.week-score      { font-family:var(--mono); font-size:12px; font-weight:600; color:#334155; margin-bottom:4px; }
-.week-bar-wrap   { flex:1; width:100%; display:flex; justify-content:center; }
-.week-bar        { width:100%; min-width:28px; border-radius:3px 3px 0 0; transition:height 0.3s; }
-.week-bar.hi     { background:var(--primary); }
-.week-bar.mid    { background:#93C5FD; }
-.week-bar.low    { background:#DBEAFE; }
-.week-bar.neg    { background:#FCA5A5; }
-.week-dow        { font-size:13px; font-weight:700; color:#0F172A; }
-.week-date       { font-family:var(--mono); font-size:10px; color:#94A3B8; }
-.week-star       { font-size:10px; font-weight:700; color:var(--accent); }
+.hero-card-accent { height:4px; }
+.hero-card-accent.high { background:linear-gradient(90deg, var(--score-high), #FCD34D); }
+.hero-card-accent.mid  { background:linear-gradient(90deg, var(--score-mid),  #60A5FA); }
+.hero-card-accent.low  { background:linear-gradient(90deg, var(--score-low),  #CBD5E1); }
 
-/* Result */
-.result-card        { background:#fff; border:none; border-radius:20px; padding:28px; margin-bottom:16px; box-shadow:0 2px 16px rgba(37,99,235,0.08); }
-.result-title       { font-size:17px; font-weight:700; margin-bottom:6px; color:#0F172A; }
-.result-date        { font-size:13px; color:#64748B; margin-bottom:24px; }
-.result-input-wrap  { display:flex; gap:10px; align-items:center; }
-.result-prefix      { font-family:var(--mono); font-size:20px; color:#334155; }
-.result-input {
-  flex:1; background:#F8F9FC; border:1.5px solid #E2E8F0;
-  border-radius:10px; padding:14px 16px; color:#0F172A; font-family:var(--mono);
-  font-size:20px; outline:none; transition:border-color 0.2s, box-shadow 0.2s;
+.hero-card-body { padding:var(--pad); }
+
+.hero-top-row {
+  display:flex; justify-content:space-between; align-items:flex-start;
+  margin-bottom:20px;
 }
-.result-input:focus        { border-color:var(--primary); outline:none; box-shadow:0 0 0 3px rgba(37,99,235,0.1); }
-.result-input::placeholder { color:#94A3B8; }
-.btn-result-save { padding:12px 20px; background:var(--primary); color:#fff; border:none; border-radius:8px; font-family:var(--font); font-weight:700; font-size:14px; cursor:pointer; transition:all 0.2s; }
-.btn-result-save:hover { background:var(--primary-dark); }
-.result-hint { font-size:12px; color:#94A3B8; margin-top:12px; }
+.hero-store-name { font-size:12px; color:var(--text-2); font-weight:500; margin-bottom:3px; }
+.hero-date { font-size:15px; font-weight:700; color:var(--text); }
 
-/* Accuracy */
-.acc-card       { background:#fff; border:none; border-radius:20px; padding:28px; box-shadow:0 2px 16px rgba(37,99,235,0.08); }
-.acc-title      { font-size:17px; font-weight:700; margin-bottom:6px; color:#0F172A; }
-.acc-sub        { font-size:13px; color:#64748B; margin-bottom:24px; }
-.acc-empty      { text-align:center; padding:20px 0; }
-.acc-empty-num  { font-family:var(--mono); font-size:44px; color:#CBD5E1; margin-bottom:10px; }
-.acc-empty-msg  { font-size:14px; color:#64748B; line-height:1.7; margin-bottom:16px; }
-.acc-progress-bar  { height:4px; background:#E2E8F0; border-radius:2px; margin-bottom:6px; overflow:hidden; }
+.hero-label-badge {
+  font-size:11px; font-weight:700;
+  padding:4px 12px; border-radius:999px; flex-shrink:0;
+}
+.hero-label-badge.high { background:#FEF3C7; color:#92400E; }
+.hero-label-badge.mid  { background:#DBEAFE; color:#1E40AF; }
+.hero-label-badge.low  { background:#F1F5F9; color:var(--text-2); }
+
+/* Action text — THE HERO of the card */
+.hero-action {
+  font-size:18px; font-weight:700; color:var(--text);
+  line-height:1.5; margin-bottom:20px;
+}
+
+/* Score row */
+.hero-score-row {
+  display:flex; align-items:baseline; gap:6px;
+  margin-bottom:16px; flex-wrap:wrap;
+}
+.hero-score-num {
+  font-family:var(--mono); font-size:64px;
+  font-weight:500; line-height:1;
+}
+.hero-score-num.high { color:var(--score-high); }
+.hero-score-num.mid  { color:var(--score-mid); }
+.hero-score-num.low  { color:var(--score-low); }
+
+.hero-score-unit {
+  font-family:var(--mono); font-size:20px; color:var(--text-3);
+}
+.hero-score-sublabel {
+  font-family:var(--mono); font-size:11px; color:var(--text-3);
+  letter-spacing:0.1em; align-self:center; margin-left:2px;
+}
+.score-context-badge {
+  font-size:12px; font-weight:700; padding:3px 10px;
+  border-radius:999px; align-self:center; margin-left:auto;
+  background:rgba(245,158,11,0.12); color:#92400E;
+}
+
+/* Tags */
+.hero-tags { display:flex; flex-wrap:wrap; gap:6px; }
+.factor-tag {
+  font-size:12px; font-weight:500; padding:4px 10px;
+  border-radius:999px;
+}
+.factor-tag.pos { background:#ECFDF5; color:#065F46; }
+.factor-tag.neg { background:#FFF7ED; color:#92400E; }
+
+/* ── PREDICTION CARD ── */
+.pred-card {
+  background:var(--surface); border-radius:var(--r-card);
+  padding:20px var(--pad);
+  box-shadow:0 2px 12px rgba(0,0,0,0.06);
+  margin-bottom:var(--gap);
+}
+.pred-row {
+  display:flex; justify-content:space-between; align-items:center;
+}
+.pred-label { font-size:12px; color:var(--text-2); margin-bottom:4px; }
+.pred-amount {
+  font-family:var(--mono); font-size:36px; font-weight:700; color:var(--text);
+  line-height:1;
+}
+.pred-pct {
+  font-family:var(--mono); font-size:16px; font-weight:700;
+  text-align:right; line-height:1.5;
+}
+.pred-pct.pos { color:#16A34A; }
+.pred-pct.neg { color:#DC2626; }
+.pred-row.pred-empty { justify-content:center; }
+.pred-empty-text { font-size:13px; color:var(--text-3); text-align:center; line-height:1.7; }
+
+/* ── FACTOR DETAIL (collapsible) ── */
+.factor-detail {
+  background:var(--surface); border-radius:var(--r-card);
+  box-shadow:0 2px 12px rgba(0,0,0,0.04);
+  margin-bottom:var(--gap); overflow:hidden;
+}
+.factor-detail-summary {
+  padding:14px var(--pad); font-size:13px; color:var(--text-2);
+  cursor:pointer; user-select:none;
+  list-style:none; display:flex; align-items:center; gap:8px;
+}
+.factor-detail-summary::-webkit-details-marker { display:none; }
+.factor-detail[open] .factor-detail-summary { border-bottom:1px solid var(--border); }
+.factor-list { padding:12px var(--pad) 16px; display:flex; flex-direction:column; gap:10px; }
+.factor-row  { display:flex; justify-content:space-between; align-items:center; }
+.factor-label { font-size:14px; color:#334155; }
+.factor-pt    { font-family:var(--mono); font-size:13px; font-weight:500; }
+.factor-pt.pos { color:#16A34A; }
+.factor-pt.neg { color:#DC2626; }
+
+/* ── TOMORROW SUMMARY CARD ── */
+.tmr-summary-card {
+  background:var(--surface); border-radius:var(--r-card);
+  padding:18px var(--pad);
+  box-shadow:0 2px 12px rgba(0,0,0,0.06);
+  margin-bottom:var(--gap);
+  display:flex; justify-content:space-between; align-items:center;
+  cursor:pointer; transition:box-shadow 0.2s;
+}
+.tmr-summary-card:hover { box-shadow:0 4px 20px rgba(0,0,0,0.1); }
+.tmr-summary-left { flex:1; }
+.tmr-summary-eyebrow { font-size:12px; color:var(--text-2); margin-bottom:4px; font-weight:500; }
+.tmr-summary-action  { font-size:14px; font-weight:600; color:var(--text); }
+.tmr-summary-right { text-align:right; flex-shrink:0; margin-left:16px; }
+.tmr-summary-score {
+  font-family:var(--mono); font-size:28px; font-weight:500; line-height:1;
+}
+.tmr-summary-score.high { color:var(--score-high); }
+.tmr-summary-score.mid  { color:var(--score-mid); }
+.tmr-summary-score.low  { color:var(--score-low); }
+.tmr-summary-link { font-size:12px; color:var(--primary); margin-top:4px; font-weight:600; }
+
+/* ── YESTERDAY INPUT CARD ── */
+.input-card {
+  background:var(--surface); border-radius:var(--r-card);
+  padding:var(--pad);
+  box-shadow:0 2px 12px rgba(0,0,0,0.06);
+  margin-bottom:var(--gap);
+}
+.input-card-title { font-size:16px; font-weight:700; color:var(--text); margin-bottom:2px; }
+.input-card-date  { font-size:13px; color:var(--text-2); margin-bottom:16px; }
+
+/* Entered state */
+#yesterday-entered {
+  display:none; align-items:center; gap:10px;
+  padding:14px 16px; background:#ECFDF5;
+  border:1.5px solid #86EFAC; border-radius:10px;
+  font-size:15px; font-weight:600; color:#065F46;
+  margin-bottom:8px;
+}
+.entered-check {
+  width:24px; height:24px; background:#16A34A; color:#fff;
+  border-radius:50%; display:inline-flex; align-items:center; justify-content:center;
+  font-size:13px; flex-shrink:0;
+}
+
+/* Amount input row */
+.input-amount-row {
+  display:flex; align-items:center; gap:10px; margin-bottom:12px;
+}
+.yen-prefix {
+  font-family:var(--mono); font-size:20px; color:#334155; flex-shrink:0;
+}
+.amount-input {
+  flex:1; background:#F8F9FC; border:1.5px solid var(--border);
+  border-radius:10px; padding:13px 16px; color:var(--text);
+  font-family:var(--mono); font-size:20px; outline:none;
+  transition:border-color 0.2s, box-shadow 0.2s;
+}
+.amount-input:focus {
+  border-color:var(--primary);
+  box-shadow:0 0 0 3px rgba(37,99,235,0.1);
+}
+.amount-input::placeholder { color:var(--text-3); }
+.btn-save-result {
+  padding:13px 20px; background:var(--primary); color:#fff;
+  border:none; border-radius:10px; font-family:var(--font);
+  font-weight:700; font-size:14px; cursor:pointer;
+  transition:all 0.2s; white-space:nowrap;
+}
+.btn-save-result:hover { background:var(--primary-dark); }
+
+.input-extras { display:flex; flex-direction:column; gap:8px; }
+.form-input-sm {
+  width:100%; background:#F8F9FC; border:1.5px solid var(--border);
+  border-radius:8px; padding:10px 14px; color:var(--text);
+  font-family:var(--font); font-size:13px; outline:none;
+}
+.form-input-sm:focus { border-color:var(--primary); }
+.input-hint { font-size:12px; color:var(--text-3); margin-top:8px; }
+
+/* ── WEEK CALENDAR ── */
+.week-card {
+  background:var(--surface); border-radius:var(--r-card);
+  padding:var(--pad); margin-bottom:var(--gap);
+  box-shadow:0 2px 12px rgba(0,0,0,0.06);
+  position:relative;
+}
+.week-card-title {
+  font-family:var(--mono); font-size:12px; color:var(--primary);
+  letter-spacing:0.15em; text-transform:uppercase; margin-bottom:20px;
+}
+#week-calendar { display:flex; gap:6px; align-items:flex-end; position:relative; }
+.week-col {
+  flex:1; display:flex; flex-direction:column; align-items:center;
+  gap:4px; padding:4px 2px; border-radius:8px;
+  transition:background 0.15s;
+}
+.week-col:hover       { background:rgba(0,0,0,0.03); }
+.week-col.today       { background:rgba(37,99,235,0.05); }
+.week-col.top .week-bar { background:var(--score-high) !important; }
+
+.week-score {
+  font-family:var(--mono); font-size:11px; font-weight:600;
+  margin-bottom:2px;
+}
+.week-score.high { color:var(--score-high); }
+.week-score.mid  { color:var(--score-mid); }
+.week-score.low  { color:var(--score-low); }
+
+.week-bar-wrap { flex:1; width:100%; display:flex; justify-content:center; min-height:16px; }
+.week-bar { width:100%; min-width:24px; border-radius:4px 4px 0 0; transition:height 0.3s; }
+.week-bar.hi  { background:var(--score-mid); }
+.week-bar.mid { background:#93C5FD; }
+.week-bar.low { background:#DBEAFE; }
+.week-bar.neg { background:#CBD5E1; }
+
+.week-dow  { font-size:13px; font-weight:700; color:var(--text); }
+.week-date { font-family:var(--mono); font-size:10px; color:var(--text-3); }
+.week-star { font-size:10px; font-weight:700; color:var(--score-high); }
+
+/* Week popover */
+.week-popover {
+  position:absolute; bottom:calc(100% + 8px); left:50%;
+  transform:translateX(-50%);
+  background:var(--text); color:#fff;
+  border-radius:12px; padding:14px 16px;
+  min-width:200px; z-index:50;
+  box-shadow:0 8px 24px rgba(0,0,0,0.2);
+  pointer-events:none;
+}
+.week-popover::after {
+  content:''; position:absolute; top:100%; left:50%; transform:translateX(-50%);
+  border:6px solid transparent; border-top-color:var(--text);
+}
+.popover-header {
+  font-size:13px; font-weight:700; margin-bottom:10px;
+  display:flex; justify-content:space-between; align-items:center;
+  padding-bottom:8px; border-bottom:1px solid rgba(255,255,255,0.15);
+}
+.popover-score { font-family:var(--mono); }
+.popover-score.high { color:var(--score-high); }
+.popover-score.mid  { color:#60A5FA; }
+.popover-score.low  { color:#94A3B8; }
+.popover-factors { display:flex; flex-direction:column; gap:6px; }
+.popover-factor {
+  display:flex; justify-content:space-between; align-items:center;
+  font-size:12px;
+}
+.popover-factor span:first-child { color:rgba(255,255,255,0.75); }
+.popover-factor .pos { font-family:var(--mono); color:#4ADE80; }
+.popover-factor .neg { font-family:var(--mono); color:#FCA5A5; }
+
+/* ── ACCURACY REPORT ── */
+.acc-card {
+  background:var(--surface); border-radius:var(--r-card);
+  padding:var(--pad); margin-bottom:var(--gap);
+  box-shadow:0 2px 12px rgba(0,0,0,0.06);
+}
+.acc-card-title { font-size:16px; font-weight:700; color:var(--text); margin-bottom:4px; }
+.acc-card-sub   { font-size:13px; color:var(--text-2); margin-bottom:20px; }
+
+.acc-empty      { text-align:center; padding:12px 0; }
+.acc-empty-icon { font-size:32px; margin-bottom:10px; }
+.acc-empty-title { font-size:15px; font-weight:700; color:var(--text); margin-bottom:8px; }
+.acc-empty-msg  { font-size:13px; color:var(--text-2); line-height:1.7; margin-bottom:20px; }
+
+.acc-progress-wrap { margin-bottom:0; }
+.acc-progress-bar  { height:4px; background:var(--border); border-radius:2px; margin-bottom:6px; overflow:hidden; }
 .acc-progress-fill { height:100%; background:var(--primary); border-radius:2px; transition:width 0.5s; }
-.acc-progress-label { font-family:var(--mono); font-size:11px; color:#94A3B8; letter-spacing:0.08em; }
-.acc-stats      { display:grid; grid-template-columns:repeat(3,1fr); gap:12px; margin-bottom:16px; }
-.acc-stat-item  { background:#F8F9FC; border:1px solid #E2E8F0; border-radius:12px; padding:18px; text-align:center; }
-.acc-stat-num   { font-family:var(--mono); font-size:28px; font-weight:500; margin-bottom:4px; color:#0F172A; }
-.acc-stat-num.good { color:var(--accent); }
-.acc-stat-num.mid  { color:var(--primary); }
-.acc-stat-num.low  { color:#94A3B8; }
-.acc-stat-label { font-size:12px; color:#64748B; }
-.acc-trend      { display:flex; justify-content:space-between; align-items:center; background:#F8F9FC; border:1px solid #E2E8F0; border-radius:12px; padding:16px 18px; margin-bottom:14px; }
+.acc-progress-label { font-family:var(--mono); font-size:11px; color:var(--text-3); letter-spacing:0.08em; }
+
+.acc-stats { display:grid; grid-template-columns:repeat(3,1fr); gap:10px; margin-bottom:16px; }
+.acc-stat-item { background:#F8F9FC; border:1px solid var(--border); border-radius:12px; padding:16px; text-align:center; }
+.acc-stat-num  { font-family:var(--mono); font-size:26px; font-weight:500; margin-bottom:4px; color:var(--text); }
+.acc-stat-num.good { color:var(--score-high); }
+.acc-stat-num.mid  { color:var(--score-mid); }
+.acc-stat-num.low  { color:var(--score-low); }
+.acc-stat-label { font-size:12px; color:var(--text-2); }
+
+.acc-trend {
+  display:flex; justify-content:space-between; align-items:center;
+  background:#F8F9FC; border:1px solid var(--border);
+  border-radius:12px; padding:14px 16px; margin-bottom:12px;
+}
 .acc-trend-label { font-size:14px; color:#334155; }
-.acc-trend-val  { font-family:var(--mono); font-size:15px; font-weight:500; }
+.acc-trend-val   { font-family:var(--mono); font-size:14px; font-weight:500; }
 .acc-trend-val.pos { color:#16A34A; }
 .acc-trend-val.neg { color:#DC2626; }
-.acc-hint       { font-size:12px; color:#94A3B8; text-align:center; margin-top:4px; }
+.acc-hint { font-size:12px; color:var(--text-3); text-align:center; }
 
-/* Settings */
-.settings-section   { max-width:480px; }
-.settings-title     { font-size:15px; font-weight:700; margin-bottom:4px; color:#0F172A; }
-.settings-sub       { font-size:12px; color:#64748B; margin-bottom:20px; }
-.settings-card      { background:#fff; border:1.5px solid #E2E8F0; border-radius:12px; padding:20px; margin-bottom:12px; }
-.settings-item      { display:flex; justify-content:space-between; align-items:center; padding:10px 0; border-bottom:1px solid #E2E8F0; }
-.settings-item:last-child { border-bottom:none; }
-.settings-item-label { font-size:13px; color:#64748B; }
-.settings-item-val  { font-size:13px; font-weight:500; color:#0F172A; }
-.btn-settings       { width:100%; padding:12px; border-radius:8px; font-family:var(--font); font-weight:700; font-size:14px; cursor:pointer; transition:all 0.2s; border:none; }
-.btn-settings.primary       { background:var(--primary); color:#fff; margin-bottom:8px; }
-.btn-settings.primary:hover { background:var(--primary-dark); }
-.btn-settings.danger        { background:#FEF2F2; color:#DC2626; border:1.5px solid #FECACA; }
-.btn-settings.danger:hover  { background:#FEE2E2; }
+/* ── REPORT SETTINGS ── */
+.report-settings-card {
+  background:var(--surface); border-radius:var(--r-card);
+  overflow:hidden; margin-bottom:var(--gap);
+  box-shadow:0 2px 12px rgba(0,0,0,0.06);
+}
+.report-settings-item {
+  display:flex; justify-content:space-between; align-items:center;
+  padding:16px var(--pad); border-bottom:1px solid var(--border);
+  cursor:pointer; transition:background 0.15s;
+}
+.report-settings-item:last-child { border-bottom:none; }
+.report-settings-item:hover { background:#F8F9FC; }
+.report-settings-label { font-size:14px; font-weight:600; color:var(--text); }
+.report-settings-sub   { font-size:12px; color:var(--text-2); margin-top:2px; }
+.report-settings-arrow { font-size:16px; color:var(--text-3); }
+.report-settings-danger .report-settings-label { color:#DC2626; }
+
+/* ── OVERVIEW (admin) ── */
+.overview-card {
+  background:var(--surface); border:1.5px solid var(--border);
+  border-radius:var(--r-card); padding:20px var(--pad);
+  margin-bottom:12px; display:flex; align-items:center;
+  justify-content:space-between; cursor:pointer;
+  box-shadow:0 2px 8px rgba(0,0,0,0.05); transition:box-shadow 0.2s;
+}
+.overview-card:hover { box-shadow:0 4px 16px rgba(0,0,0,0.1); }
+.overview-score {
+  font-family:var(--mono); font-size:28px; font-weight:500; line-height:1;
+}
+.overview-score.high { color:var(--score-high); }
+.overview-score.mid  { color:var(--score-mid); }
+.overview-score.low  { color:var(--score-low); }
 </style>
 </head>
 <body>
@@ -1697,8 +2187,6 @@ html, body { height:100%; font-family:var(--font); font-size:15px; background:va
      LP
 ══════════════════════════════════════ -->
 <div id="screen-lp" class="screen">
-
-  <!-- Nav -->
   <nav class="lp-nav">
     <div class="lp-nav-brand">
       <div style="width:44px;height:44px;background:#1E2A3A;border-radius:10px;display:flex;align-items:center;justify-content:center;flex-shrink:0;">
@@ -1715,7 +2203,7 @@ html, body { height:100%; font-family:var(--font); font-size:15px; background:va
           <circle cx="7"  cy="25" r="2.5" fill="#F472B6"/>
         </svg>
       </div>
-      <div class="lp-brand-name"><span style="font-family:'DM Mono',monospace;font-size:inherit;"><span style="font-weight:700;letter-spacing:-0.5px;">Hi</span><span style="font-weight:300;letter-spacing:-0.5px;"> Score</span></span></div>
+      <div class="lp-brand-name"><span style="font-weight:700;letter-spacing:-0.5px;">Hi</span><span style="font-weight:300;letter-spacing:-0.5px;"> Score</span></div>
     </div>
     <div class="lp-nav-links">
       <a href="#lp-how">使い方</a>
@@ -1726,7 +2214,6 @@ html, body { height:100%; font-family:var(--font); font-size:15px; background:va
     <button class="lp-nav-cta" onclick="window._showSignup()">無料で試す</button>
   </nav>
 
-  <!-- Hero -->
   <section class="lp-hero">
     <div class="lp-hero-text">
       <div class="lp-hero-badge">
@@ -1740,7 +2227,6 @@ html, body { height:100%; font-family:var(--font); font-size:15px; background:va
         <button class="lp-btn-ghost" onclick="document.getElementById('lp-how').scrollIntoView({behavior:'smooth'})">使い方を見る →</button>
       </div>
     </div>
-    <!-- Score mock UI -->
     <div class="lp-mock">
       <div class="lp-mock-top"></div>
       <div class="lp-mock-label">Tomorrow</div>
@@ -1760,8 +2246,6 @@ html, body { height:100%; font-family:var(--font); font-size:15px; background:va
     </div>
   </section>
 
-
-  <!-- 課題 -->
   <section class="lp-section" style="background:#F9FAFB;">
     <div class="lp-section-inner">
       <div class="lp-section-head">
@@ -1794,7 +2278,6 @@ html, body { height:100%; font-family:var(--font); font-size:15px; background:va
     </div>
   </section>
 
-  <!-- 使い方 -->
   <section class="lp-section" id="lp-how">
     <div class="lp-section-inner">
       <div class="lp-section-head">
@@ -1803,31 +2286,14 @@ html, body { height:100%; font-family:var(--font); font-size:15px; background:va
         <p>アカウント作成から最初のスコア表示まで5分以内</p>
       </div>
       <div class="lp-steps">
-        <div class="lp-step">
-          <div class="lp-step-num">1</div>
-          <h3>アカウント作成</h3>
-          <p>メールアドレスとパスワードだけで即登録。クレカ不要。</p>
-        </div>
-        <div class="lp-step">
-          <div class="lp-step-num">2</div>
-          <h3>店舗情報を入力</h3>
-          <p>店舗名・住所・曜日別の平均売上を設定。大体の金額でOK。</p>
-        </div>
-        <div class="lp-step">
-          <div class="lp-step-num">3</div>
-          <h3>スコアを確認</h3>
-          <p>今日・明日のHi Scoreと予測売上が自動表示。毎朝確認するだけ。</p>
-        </div>
-        <div class="lp-step">
-          <div class="lp-step-num">4</div>
-          <h3>今日の売上を入力する</h3>
-          <p>1日1回、実際の売上を入力。使うほどスコアの精度が上がる。</p>
-        </div>
+        <div class="lp-step"><div class="lp-step-num">1</div><h3>アカウント作成</h3><p>メールアドレスとパスワードだけで即登録。クレカ不要。</p></div>
+        <div class="lp-step"><div class="lp-step-num">2</div><h3>店舗情報を入力</h3><p>店舗名・住所・曜日別の平均売上を設定。大体の金額でOK。</p></div>
+        <div class="lp-step"><div class="lp-step-num">3</div><h3>スコアを確認</h3><p>今日・明日のHi Scoreと予測売上が自動表示。毎朝確認するだけ。</p></div>
+        <div class="lp-step"><div class="lp-step-num">4</div><h3>今日の売上を入力する</h3><p>1日1回、実際の売上を入力。使うほどスコアの精度が上がる。</p></div>
       </div>
     </div>
   </section>
 
-  <!-- 機能 -->
   <section class="lp-section" id="lp-features" style="background:#F9FAFB;">
     <div class="lp-section-inner">
       <div class="lp-section-head">
@@ -1837,30 +2303,20 @@ html, body { height:100%; font-family:var(--font); font-size:15px; background:va
       <div class="lp-features-grid">
         <div class="lp-feature-card">
           <div class="lp-feature-icon"><svg viewBox="0 0 24 24"><polyline points="22 7 13.5 15.5 8.5 10.5 2 17"/><polyline points="16 7 22 7 22 13"/></svg></div>
-          <div>
-            <h3>今日・明日のHi Score</h3>
-            <p>天気・曜日・季節イベントを独自アルゴリズムで合算。-10〜+10のスコアで売上ポテンシャルを可視化します。</p>
-          </div>
+          <div><h3>今日・明日のHi Score</h3><p>天気・曜日・季節イベントを独自アルゴリズムで合算。-10〜+10のスコアで売上ポテンシャルを可視化します。</p></div>
         </div>
         <div class="lp-feature-card">
           <div class="lp-feature-icon"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg></div>
-          <div>
-            <h3>週間カレンダー表示</h3>
-            <p>7日分のスコアをバーグラフで一覧表示。「今週の山場」を一目で把握し、仕込み・シフト計画に活かせます。</p>
-          </div>
+          <div><h3>週間カレンダー表示</h3><p>7日分のスコアをバーグラフで一覧表示。「今週の山場」を一目で把握し、仕込み・シフト計画に活かせます。</p></div>
         </div>
         <div class="lp-feature-card">
           <div class="lp-feature-icon"><svg viewBox="0 0 24 24"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg></div>
-          <div>
-            <h3>予測精度レポート</h3>
-            <p>売上を入力するほど、あなたの店専用の予測に育ちます。雨の日の傾向など、自店のパターンを自動で学習します。</p>
-          </div>
+          <div><h3>予測精度レポート</h3><p>売上を入力するほど、あなたの店専用の予測に育ちます。雨の日の傾向など、自店のパターンを自動で学習します。</p></div>
         </div>
       </div>
     </div>
   </section>
 
-  <!-- エビデンス -->
   <section class="lp-section">
     <div class="lp-section-inner">
       <div class="lp-section-head">
@@ -1869,30 +2325,22 @@ html, body { height:100%; font-family:var(--font); font-size:15px; background:va
       </div>
       <div class="lp-evidence-grid">
         <div class="lp-evidence-card">
-          <div class="lp-evidence-icon">
-            <svg viewBox="0 0 24 24"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
-          </div>
+          <div class="lp-evidence-icon"><svg viewBox="0 0 24 24"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg></div>
           <div class="lp-evidence-title">仕込みの判断に根拠が生まれる</div>
           <div class="lp-evidence-desc">「なんとなく多め」から卒業。スコアをもとに仕込み量を決められる。</div>
         </div>
         <div class="lp-evidence-card">
-          <div class="lp-evidence-icon">
-            <svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
-          </div>
+          <div class="lp-evidence-icon"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg></div>
           <div class="lp-evidence-title">シフトの無駄がなくなる</div>
           <div class="lp-evidence-desc">閑散日を事前に把握してスタッフを適切に配置。人件費のムダを減らせる。</div>
         </div>
         <div class="lp-evidence-card">
-          <div class="lp-evidence-icon">
-            <svg viewBox="0 0 24 24"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/></svg>
-          </div>
+          <div class="lp-evidence-icon"><svg viewBox="0 0 24 24"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/></svg></div>
           <div class="lp-evidence-title">使うほど予測が自分の店に育つ</div>
           <div class="lp-evidence-desc">売上を入力し続けることで、あなたの店専用のスコアに進化していく。</div>
         </div>
         <div class="lp-evidence-card">
-          <div class="lp-evidence-icon">
-            <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
-          </div>
+          <div class="lp-evidence-icon"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg></div>
           <div class="lp-evidence-title">毎日1分で完結する</div>
           <div class="lp-evidence-desc">勤務終わりに売上を入力するだけ。難しい操作は一切ない。</div>
         </div>
@@ -1900,7 +2348,6 @@ html, body { height:100%; font-family:var(--font); font-size:15px; background:va
     </div>
   </section>
 
-  <!-- 料金・CTA -->
   <section class="lp-cta" id="lp-pricing">
     <h2>まずは1ヶ月、無料で試してください</h2>
     <p>クレジットカード不要。登録は1分で完了します。<br>売上を入力するほど、あなたの店専用の予測に育ちます。</p>
@@ -1910,7 +2357,6 @@ html, body { height:100%; font-family:var(--font); font-size:15px; background:va
     <div class="lp-cta-sub">30秒で登録 · クレカ不要 · いつでも解約可能</div>
   </section>
 
-  <!-- Footer -->
   <footer class="lp-footer">
     <div class="lp-footer-brand">
       <div style="width:34px;height:34px;background:#1E2A3A;border-radius:8px;display:flex;align-items:center;justify-content:center;flex-shrink:0;">
@@ -1927,11 +2373,10 @@ html, body { height:100%; font-family:var(--font); font-size:15px; background:va
           <circle cx="7"  cy="25" r="2.5" fill="#F472B6"/>
         </svg>
       </div>
-      <div class="lp-footer-brand-name"><span style="font-family:'DM Mono',monospace;font-size:inherit;"><span style="font-weight:700;letter-spacing:-0.5px;">Hi</span><span style="font-weight:300;letter-spacing:-0.5px;"> Score</span></span></div>
+      <div class="lp-footer-brand-name"><span style="font-weight:700;letter-spacing:-0.5px;">Hi</span><span style="font-weight:300;letter-spacing:-0.5px;"> Score</span></div>
     </div>
     <div class="lp-footer-copy">© 2025 Hi Score. All rights reserved.</div>
   </footer>
-
 </div>
 
 <!-- ══════════════════════════════════════
@@ -1956,44 +2401,18 @@ html, body { height:100%; font-family:var(--font); font-size:15px; background:va
             <circle cx="7"  cy="25" r="2.5" fill="#F472B6"/>
           </svg>
         </div>
-        <div class="brand-name"><span style="font-family:'DM Mono',monospace;font-size:inherit;"><span style="font-weight:700;letter-spacing:-0.5px;">Hi</span><span style="font-weight:300;letter-spacing:-0.5px;"> Score</span></span></div>
+        <div class="brand-name"><span style="font-weight:700;letter-spacing:-0.5px;">Hi</span><span style="font-weight:300;letter-spacing:-0.5px;"> Score</span></div>
       </div>
-      <!-- タブ -->
-      <div id="auth-tabs" style="
-        display:flex; border-bottom:2px solid #E2E8F0;
-        margin-bottom:24px;
-      ">
-        <button id="tab-signup" onclick="switchAuthMode('signup')" style="
-          flex:1; padding:12px 0; font-family:var(--font); font-size:14px;
-          font-weight:700; border:none; background:none; cursor:pointer;
-          color:var(--primary); border-bottom:2px solid var(--primary);
-          margin-bottom:-2px; transition:all 0.2s;
-        ">新規登録</button>
-        <button id="tab-login" onclick="switchAuthMode('login')" style="
-          flex:1; padding:12px 0; font-family:var(--font); font-size:14px;
-          font-weight:600; border:none; background:none; cursor:pointer;
-          color:#94A3B8; border-bottom:2px solid transparent;
-          margin-bottom:-2px; transition:all 0.2s;
-        ">ログイン</button>
+      <div id="auth-tabs" style="display:flex;border-bottom:2px solid var(--border);margin-bottom:24px;">
+        <button id="tab-signup" onclick="switchAuthMode('signup')" style="flex:1;padding:12px 0;font-family:var(--font);font-size:14px;font-weight:700;border:none;background:none;cursor:pointer;color:var(--primary);border-bottom:2px solid var(--primary);margin-bottom:-2px;transition:all 0.2s;">新規登録</button>
+        <button id="tab-login"  onclick="switchAuthMode('login')"  style="flex:1;padding:12px 0;font-family:var(--font);font-size:14px;font-weight:600;border:none;background:none;cursor:pointer;color:#94A3B8;border-bottom:2px solid transparent;margin-bottom:-2px;transition:all 0.2s;">ログイン</button>
       </div>
-
-      <!-- 新規登録モード説明文 -->
-      <div id="auth-desc-signup" style="
-        font-size:13px; color:#64748B; margin-bottom:20px; line-height:1.6;
-      ">
-        メールアドレスとパスワードだけで登録できます。<br>
-        クレジットカード不要・1分で完了。
+      <div id="auth-desc-signup" style="font-size:13px;color:#64748B;margin-bottom:20px;line-height:1.6;">
+        メールアドレスとパスワードだけで登録できます。<br>クレジットカード不要・1分で完了。
       </div>
-
-      <!-- ログインモード説明文 -->
-      <div id="auth-desc-login" style="
-        display:none;
-        font-size:13px; color:#64748B; margin-bottom:20px; line-height:1.6;
-      ">
+      <div id="auth-desc-login" style="display:none;font-size:13px;color:#64748B;margin-bottom:20px;line-height:1.6;">
         登録済みのメールアドレスとパスワードでログインしてください。
       </div>
-
-      <!-- 共通フォーム -->
       <div class="form-group">
         <label class="form-label">メールアドレス</label>
         <input id="login-email" class="form-input" type="email" placeholder="your@email.com">
@@ -2002,40 +2421,17 @@ html, body { height:100%; font-family:var(--font); font-size:15px; background:va
         <label class="form-label">パスワード</label>
         <input id="login-pass" class="form-input" type="password" placeholder="8文字以上">
       </div>
-
-      <!-- メインボタン（モードで切り替え） -->
-      <button id="btn-auth-main" onclick="handleAuthMain()" style="
-        width:100%; padding:14px; background:var(--primary); color:white;
-        border:none; border-radius:10px; font-family:var(--font);
-        font-size:15px; font-weight:700; cursor:pointer;
-        transition:background 0.2s; margin-top:4px;
-      ">無料で始める</button>
-
-      <!-- 隠し既存ボタン（内部処理用） -->
+      <button id="btn-auth-main" onclick="handleAuthMain()" style="width:100%;padding:14px;background:var(--primary);color:white;border:none;border-radius:10px;font-family:var(--font);font-size:15px;font-weight:700;cursor:pointer;transition:background 0.2s;margin-top:4px;">無料で始める</button>
       <button id="btn-login"  style="display:none;">ログイン</button>
       <button id="btn-signup" style="display:none;">新規登録</button>
-
-      <!-- サブテキスト（モードで切り替え） -->
-      <div id="auth-sub-signup" style="
-        text-align:center; margin-top:16px; font-size:13px; color:#94A3B8;
-      ">
+      <div id="auth-sub-signup" style="text-align:center;margin-top:16px;font-size:13px;color:#94A3B8;">
         すでにアカウントをお持ちの方は
-        <a onclick="switchAuthMode('login')" style="
-          color:var(--primary); cursor:pointer; font-weight:600;
-          text-decoration:none;
-        ">こちらからログイン</a>
+        <a onclick="switchAuthMode('login')" style="color:var(--primary);cursor:pointer;font-weight:600;text-decoration:none;">こちらからログイン</a>
       </div>
-      <div id="auth-sub-login" style="
-        display:none; text-align:center; margin-top:16px;
-        font-size:13px; color:#94A3B8;
-      ">
+      <div id="auth-sub-login" style="display:none;text-align:center;margin-top:16px;font-size:13px;color:#94A3B8;">
         アカウントをお持ちでない方は
-        <a onclick="switchAuthMode('signup')" style="
-          color:var(--primary); cursor:pointer; font-weight:600;
-          text-decoration:none;
-        ">新規登録はこちら</a>
+        <a onclick="switchAuthMode('signup')" style="color:var(--primary);cursor:pointer;font-weight:600;text-decoration:none;">新規登録はこちら</a>
       </div>
-
       <div class="login-back-lp" style="margin-top:20px;">
         <a onclick="showScreen('lp')">← トップに戻る</a>
       </div>
@@ -2062,21 +2458,11 @@ html, body { height:100%; font-family:var(--font); font-size:15px; background:va
         </div>
         <div class="form-group">
           <label class="form-label">郵便番号</label>
-          <div style="display:flex; gap:8px; align-items:center;">
-            <input id="setup-zipcode" class="form-input" type="text"
-              placeholder="例：150-0041" maxlength="8"
-              style="max-width:160px; letter-spacing:0.05em;">
-            <button id="btn-zip-search" type="button" style="
-              font-family:var(--font); font-size:13px; font-weight:600;
-              background:var(--primary); color:white; border:none;
-              padding:10px 16px; border-radius:8px; cursor:pointer;
-              white-space:nowrap; transition:background 0.2s;
-            ">住所を確認</button>
+          <div style="display:flex;gap:8px;align-items:center;">
+            <input id="setup-zipcode" class="form-input" type="text" placeholder="例：150-0041" maxlength="8" style="max-width:160px;letter-spacing:0.05em;">
+            <button id="btn-zip-search" type="button" style="font-family:var(--font);font-size:13px;font-weight:600;background:var(--primary);color:white;border:none;padding:10px 16px;border-radius:8px;cursor:pointer;white-space:nowrap;">住所を確認</button>
           </div>
-          <div id="zip-result" style="
-            margin-top:8px; font-size:13px; color:#475569;
-            min-height:20px; font-weight:500;
-          "></div>
+          <div id="zip-result" style="margin-top:8px;font-size:13px;color:#475569;min-height:20px;font-weight:500;"></div>
           <div class="form-hint">ハイフンあり・なしどちらでも入力できます</div>
         </div>
       </div>
@@ -2085,22 +2471,10 @@ html, body { height:100%; font-family:var(--font); font-size:15px; background:va
       <div class="setup-section-title">曜日別 平均売上</div>
       <div class="setup-card">
         <div class="setup-grid">
-          <div class="form-group">
-            <label class="form-label">平日（月〜木）</label>
-            <input id="setup-weekday" class="form-input" type="number" placeholder="例：280000">
-          </div>
-          <div class="form-group">
-            <label class="form-label">金曜日</label>
-            <input id="setup-fri" class="form-input" type="number" placeholder="例：380000">
-          </div>
-          <div class="form-group">
-            <label class="form-label">土曜日</label>
-            <input id="setup-sat" class="form-input" type="number" placeholder="例：420000">
-          </div>
-          <div class="form-group">
-            <label class="form-label">日曜日</label>
-            <input id="setup-sun" class="form-input" type="number" placeholder="例：350000">
-          </div>
+          <div class="form-group"><label class="form-label">平日（月〜木）</label><input id="setup-weekday" class="form-input" type="number" placeholder="例：280000"></div>
+          <div class="form-group"><label class="form-label">金曜日</label><input id="setup-fri" class="form-input" type="number" placeholder="例：380000"></div>
+          <div class="form-group"><label class="form-label">土曜日</label><input id="setup-sat" class="form-input" type="number" placeholder="例：420000"></div>
+          <div class="form-group"><label class="form-label">日曜日</label><input id="setup-sun" class="form-input" type="number" placeholder="例：350000"></div>
         </div>
         <div class="form-hint">大体の金額でOKです。続けるほど予測の精度があがります。</div>
       </div>
@@ -2109,79 +2483,147 @@ html, body { height:100%; font-family:var(--font); font-size:15px; background:va
       <div class="setup-section-title">店舗タイプ（任意）</div>
       <div class="setup-card">
         <div class="form-group">
-          <div style="display:flex; flex-direction:column; gap:12px;">
-            <label style="display:flex; align-items:flex-start; gap:10px; cursor:pointer;">
-              <input type="radio" name="store-type" id="type-auto" value="auto"
-                checked style="margin-top:3px; accent-color:var(--primary);">
-              <div>
-                <div style="font-size:13px; font-weight:600; color:#0F172A;">自動判定（推奨）</div>
-                <div style="font-size:12px; color:#64748B; margin-top:2px;">過去データから自動で判定します</div>
-              </div>
+          <div style="display:flex;flex-direction:column;gap:12px;">
+            <label style="display:flex;align-items:flex-start;gap:10px;cursor:pointer;">
+              <input type="radio" name="store-type" value="auto" checked style="margin-top:3px;accent-color:var(--primary);">
+              <div><div style="font-size:13px;font-weight:600;color:var(--text);">自動判定（推奨）</div><div style="font-size:12px;color:#64748B;margin-top:2px;">過去データから自動で判定します</div></div>
             </label>
-            <label style="display:flex; align-items:flex-start; gap:10px; cursor:pointer;">
-              <input type="radio" name="store-type" id="type-standard" value="standard"
-                style="margin-top:3px; accent-color:var(--primary);">
-              <div>
-                <div style="font-size:13px; font-weight:600; color:#0F172A;">標準（デフォルト）</div>
-                <div style="font-size:12px; color:#64748B; margin-top:2px;">平日・週末ともにバランスよく集客する店舗</div>
-              </div>
+            <label style="display:flex;align-items:flex-start;gap:10px;cursor:pointer;">
+              <input type="radio" name="store-type" value="standard" style="margin-top:3px;accent-color:var(--primary);">
+              <div><div style="font-size:13px;font-weight:600;color:var(--text);">標準（デフォルト）</div><div style="font-size:12px;color:#64748B;margin-top:2px;">平日・週末ともにバランスよく集客する店舗</div></div>
             </label>
-            <label style="display:flex; align-items:flex-start; gap:10px; cursor:pointer;">
-              <input type="radio" name="store-type" id="type-office" value="office"
-                style="margin-top:3px; accent-color:var(--primary);">
-              <div>
-                <div style="font-size:13px; font-weight:600; color:#0F172A;">オフィス街・サラリーマン向け</div>
-                <div style="font-size:12px; color:#64748B; margin-top:2px;">平日の需要が高く、土日祝は売上が下がる傾向</div>
-              </div>
+            <label style="display:flex;align-items:flex-start;gap:10px;cursor:pointer;">
+              <input type="radio" name="store-type" value="office" style="margin-top:3px;accent-color:var(--primary);">
+              <div><div style="font-size:13px;font-weight:600;color:var(--text);">オフィス街・サラリーマン向け</div><div style="font-size:12px;color:#64748B;margin-top:2px;">平日の需要が高く、土日祝は売上が下がる傾向</div></div>
             </label>
-            <label style="display:flex; align-items:flex-start; gap:10px; cursor:pointer;">
-              <input type="radio" name="store-type" id="type-tourist" value="tourist"
-                style="margin-top:3px; accent-color:var(--primary);">
-              <div>
-                <div style="font-size:13px; font-weight:600; color:#0F172A;">観光地・繁華街</div>
-                <div style="font-size:12px; color:#64748B; margin-top:2px;">土日・祝日・イベント時の集客が強い店舗</div>
-              </div>
+            <label style="display:flex;align-items:flex-start;gap:10px;cursor:pointer;">
+              <input type="radio" name="store-type" value="tourist" style="margin-top:3px;accent-color:var(--primary);">
+              <div><div style="font-size:13px;font-weight:600;color:var(--text);">観光地・繁華街</div><div style="font-size:12px;color:#64748B;margin-top:2px;">土日・祝日・イベント時の集客が強い店舗</div></div>
             </label>
-            <label style="display:flex; align-items:flex-start; gap:10px; cursor:pointer;">
-              <input type="radio" name="store-type" id="type-residential" value="residential"
-                style="margin-top:3px; accent-color:var(--primary);">
-              <div>
-                <div style="font-size:13px; font-weight:600; color:#0F172A;">住宅街・ファミリー向け</div>
-                <div style="font-size:12px; color:#64748B; margin-top:2px;">週末は家族客が増え、平日はやや閑散</div>
-              </div>
+            <label style="display:flex;align-items:flex-start;gap:10px;cursor:pointer;">
+              <input type="radio" name="store-type" value="residential" style="margin-top:3px;accent-color:var(--primary);">
+              <div><div style="font-size:13px;font-weight:600;color:var(--text);">住宅街・ファミリー向け</div><div style="font-size:12px;color:#64748B;margin-top:2px;">週末は家族客が増え、平日はやや閑散</div></div>
             </label>
           </div>
-          <div class="form-hint" style="margin-top:12px;">
-            過去データがある場合は「自動判定」を推奨。手動選択は自動判定より優先されます。
-          </div>
+          <div class="form-hint" style="margin-top:12px;">過去データがある場合は「自動判定」を推奨。手動選択は自動判定より優先されます。</div>
         </div>
       </div>
     </div>
-
     <div class="setup-section">
       <div class="setup-section-title">過去の売上データ（任意・多いほど精度向上）</div>
-      <div class="setup-card">
-        <div class="form-group">
-          <label class="form-label">過去の売上データを貼り付け（任意）</label>
-          <textarea id="setup-paste-data" class="form-input" rows="7" style="height:160px;resize:vertical;font-family:var(--mono);font-size:13px;line-height:1.7;" placeholder="日付と売上を1行ずつ貼り付けてください（Excelやメモ帳からそのままコピペOK）
-例：
-2026/02/01  285000
-2026/02/02  412000
-2025/12/15  398000
+      <div class="setup-card" style="padding:0;overflow:hidden;">
 
-複数月・複数年分まとめて貼り付けOKです。
-多ければ多いほど予測精度が上がります。"></textarea>
-          <div class="form-hint">曜日別平均・晴雨係数・店舗タイプを自動算出します。<br>30日分以上で基本精度、90日分以上で高精度になります。<br>複数月・複数年のデータをまとめて貼り付けてください。</div>
-          <div id="paste-feedback" style="
-            display:none; margin-top:12px; padding:14px 16px;
-            background:#F0FDF4; border:1.5px solid #86EFAC;
-            border-radius:10px; font-size:13px; color:#166534;
-            line-height:1.7;
-          "></div>
+        <!-- ステップ説明バナー -->
+        <div style="
+          background:linear-gradient(135deg,#EFF6FF,#F0FDF4);
+          border-bottom:1px solid #E2E8F0;
+          padding:16px 20px;
+          display:flex; align-items:flex-start; gap:14px;
+        ">
+          <div style="font-size:22px;line-height:1;flex-shrink:0;margin-top:2px;">📋</div>
+          <div>
+            <div style="font-size:14px;font-weight:700;color:#0F172A;margin-bottom:4px;">
+              POSや日報のデータをそのままコピペするだけ
+            </div>
+            <div style="font-size:13px;color:#475569;line-height:1.7;">
+              ExcelやCSV・手書き日報など形式は問いません。<br>
+              貼り付けると<strong>曜日別平均・晴雨係数・店舗タイプ</strong>を自動で計算します。
+            </div>
+          </div>
         </div>
+
+        <!-- 精度メーター -->
+        <div style="
+          padding:14px 20px;
+          background:#FAFAFA;
+          border-bottom:1px solid #E2E8F0;
+          display:flex; gap:8px; align-items:stretch;
+        ">
+          <div style="flex:1;text-align:center;padding:10px 8px;border-radius:8px;background:#FEF9C3;border:1px solid #FDE68A;">
+            <div style="font-size:18px;font-weight:800;color:#92400E;font-family:var(--mono);">30日〜</div>
+            <div style="font-size:11px;color:#78350F;margin-top:2px;font-weight:600;">基本精度</div>
+            <div style="font-size:10px;color:#92400E;margin-top:1px;">まずここを目指す</div>
+          </div>
+          <div style="display:flex;align-items:center;color:#CBD5E1;font-size:12px;">▶</div>
+          <div style="flex:1;text-align:center;padding:10px 8px;border-radius:8px;background:#DBEAFE;border:1px solid #93C5FD;">
+            <div style="font-size:18px;font-weight:800;color:#1E40AF;font-family:var(--mono);">90日〜</div>
+            <div style="font-size:11px;color:#1E3A8A;margin-top:2px;font-weight:600;">高精度</div>
+            <div style="font-size:10px;color:#1E40AF;margin-top:1px;">3ヶ月分で安定</div>
+          </div>
+          <div style="display:flex;align-items:center;color:#CBD5E1;font-size:12px;">▶</div>
+          <div style="flex:1;text-align:center;padding:10px 8px;border-radius:8px;background:#DCFCE7;border:1px solid #86EFAC;">
+            <div style="font-size:18px;font-weight:800;color:#166534;font-family:var(--mono);">365日〜</div>
+            <div style="font-size:11px;color:#14532D;margin-top:2px;font-weight:600;">最高精度</div>
+            <div style="font-size:10px;color:#166534;margin-top:1px;">1年分で完璧</div>
+          </div>
+        </div>
+
+        <!-- フォーマット例 -->
+        <div style="padding:14px 20px;border-bottom:1px solid #E2E8F0;">
+          <div style="font-size:12px;font-weight:600;color:#64748B;margin-bottom:8px;
+            display:flex;align-items:center;gap:6px;">
+            <span style="
+              background:#F1F5F9;border-radius:4px;
+              padding:2px 8px;font-family:var(--mono);
+            ">フォーマット例</span>
+            <span style="font-weight:400;">— どの形式でも自動で読み取ります</span>
+          </div>
+          <div style="
+            background:#1E2A3A;border-radius:8px;
+            padding:12px 16px;font-family:var(--mono);
+            font-size:13px;line-height:2;color:#94A3B8;
+          ">
+            <span style="color:#60A5FA;">2026/02/01</span>&nbsp;&nbsp;<span style="color:#4ADE80;">285000</span><br>
+            <span style="color:#60A5FA;">2026/02/02</span>&nbsp;&nbsp;<span style="color:#4ADE80;">412000</span><br>
+            <span style="color:#60A5FA;">2025/12/15</span>&nbsp;&nbsp;<span style="color:#4ADE80;">398000</span><br>
+            <span style="color:#475569;font-size:12px;">… 複数月・複数年まとめてOK</span>
+          </div>
+        </div>
+
+        <!-- テキストエリア本体 -->
+        <div style="padding:16px 20px;">
+          <div style="
+            font-size:13px;font-weight:600;color:#0F172A;
+            margin-bottom:8px;display:flex;align-items:center;gap:6px;
+          ">
+            ここにデータを貼り付け
+            <span style="
+              font-size:11px;font-weight:400;color:#94A3B8;
+              background:#F1F5F9;padding:2px 8px;border-radius:4px;
+            ">任意</span>
+          </div>
+          <textarea
+            id="setup-paste-data"
+            class="form-input"
+            rows="6"
+            style="
+              height:140px;resize:vertical;
+              font-family:var(--mono);font-size:13px;line-height:1.8;
+              background:#F8FAFC;
+            "
+            placeholder="2026/02/01&#9;285000
+2026/02/02&#9;412000
+2025/12/15&#9;398000"></textarea>
+          <div style="
+            margin-top:8px;font-size:12px;color:#94A3B8;
+            display:flex;align-items:center;gap:4px;
+          ">
+            <span>💡</span>
+            ExcelからCtrl+C → そのままCtrl+Vで貼り付けできます
+          </div>
+        </div>
+
+        <!-- フィードバック表示エリア（貼り付け後に表示） -->
+        <div id="paste-feedback" style="
+          display:none;
+          margin:0 20px 16px;
+          padding:14px 16px;
+          background:#F0FDF4;border:1.5px solid #86EFAC;
+          border-radius:10px;font-size:13px;color:#166534;line-height:1.7;
+        "></div>
+
       </div>
     </div>
-
     <button id="btn-save-setup" class="btn-save">設定を保存してスタート</button>
   </div>
 </div>
@@ -2190,10 +2632,12 @@ html, body { height:100%; font-family:var(--font); font-size:15px; background:va
      DASHBOARD
 ══════════════════════════════════════ -->
 <div id="screen-dashboard" class="screen">
+
+  <!-- Header -->
   <div class="dash-header">
     <div class="dash-brand">
-      <div style="width:34px;height:34px;background:#1E2A3A;border-radius:8px;display:flex;align-items:center;justify-content:center;flex-shrink:0;">
-        <svg viewBox="0 0 32 32" width="18" height="18">
+      <div style="width:32px;height:32px;background:#1E2A3A;border-radius:7px;display:flex;align-items:center;justify-content:center;flex-shrink:0;">
+        <svg viewBox="0 0 32 32" width="16" height="16">
           <line x1="7" y1="16" x2="7" y2="7"   stroke="#60A5FA" stroke-width="3" stroke-linecap="round"/>
           <line x1="7" y1="7"  x2="25" y2="7"   stroke="#F59E0B" stroke-width="3" stroke-linecap="round"/>
           <line x1="25" y1="7"  x2="25" y2="25" stroke="#4ADE80" stroke-width="3" stroke-linecap="round"/>
@@ -2206,11 +2650,11 @@ html, body { height:100%; font-family:var(--font); font-size:15px; background:va
           <circle cx="7"  cy="25" r="2.5" fill="#F472B6"/>
         </svg>
       </div>
-      <div class="dash-brand-name"><span style="font-family:'DM Mono',monospace;font-size:inherit;"><span style="font-weight:700;letter-spacing:-0.5px;">Hi</span><span style="font-weight:300;letter-spacing:-0.5px;"> Score</span></span></div>
+      <div class="dash-brand-name"><span style="font-weight:700;letter-spacing:-0.5px;">Hi</span><span style="font-weight:300;letter-spacing:-0.5px;"> Score</span></div>
     </div>
     <div class="dash-header-right">
       <div id="dash-store-name" class="dash-store-name"></div>
-      <select id="store-selector" style="display:none;font-family:var(--font);font-size:13px;font-weight:600;color:#0F172A;background:#F1F5FD;border:1.5px solid #E2E8F0;border-radius:8px;padding:6px 28px 6px 10px;cursor:pointer;appearance:none;-webkit-appearance:none;background-image:url('data:image/svg+xml,<svg xmlns=\'http://www.w3.org/2000/svg\' width=\'10\' height=\'6\'><path d=\'M0 0l5 6 5-6\' fill=\'none\' stroke=\'%2364748B\' stroke-width=\'1.5\' stroke-linecap=\'round\' stroke-linejoin=\'round\'/></svg>');background-repeat:no-repeat;background-position:right 8px center;max-width:160px;"></select>
+      <select id="store-selector" style="display:none;font-family:var(--font);font-size:13px;font-weight:600;color:var(--text);background:#F1F5FD;border:1.5px solid var(--border);border-radius:8px;padding:6px 28px 6px 10px;cursor:pointer;appearance:none;-webkit-appearance:none;background-image:url('data:image/svg+xml,<svg xmlns=\'http://www.w3.org/2000/svg\' width=\'10\' height=\'6\'><path d=\'M0 0l5 6 5-6\' fill=\'none\' stroke=\'%2364748B\' stroke-width=\'1.5\' stroke-linecap=\'round\' stroke-linejoin=\'round\'/></svg>');background-repeat:no-repeat;background-position:right 8px center;max-width:160px;"></select>
       <button id="btn-edit-setup" class="btn-icon" title="設定">
         <svg viewBox="0 0 16 16"><circle cx="8" cy="8" r="2.5"/><path d="M8 1v2M8 13v2M1 8h2M13 8h2M3.2 3.2l1.4 1.4M11.4 11.4l1.4 1.4M3.2 12.8l1.4-1.4M11.4 4.6l1.4-1.4"/></svg>
       </button>
@@ -2220,90 +2664,135 @@ html, body { height:100%; font-family:var(--font); font-size:15px; background:va
     </div>
   </div>
 
+  <!-- Nav Tabs -->
   <div class="nav-tabs">
     <button class="nav-tab admin-only" data-tab="overview" style="display:none;">全店舗</button>
-    <button class="nav-tab active" data-tab="score">Hi Score</button>
-    <button class="nav-tab" data-tab="week">週間</button>
-    <button class="nav-tab" data-tab="result">売上入力</button>
-    <button class="nav-tab" data-tab="report">分析</button>
+    <button class="nav-tab active" data-tab="today">Today</button>
+    <button class="nav-tab" data-tab="tomorrow">Tomorrow</button>
+    <button class="nav-tab" data-tab="week">Week</button>
+    <button class="nav-tab" data-tab="report">Report</button>
   </div>
 
   <div class="tab-panels">
 
-    <!-- SCORE TAB（今日・明日 2枚） -->
-    <div id="tab-score" class="tab-panel active">
+    <!-- ─── TAB: TODAY ─── -->
+    <div id="tab-today" class="tab-panel active">
+
+      <!-- Hero + Pred + Factors (injected by renderDashboard) -->
       <div id="score-cards-container">
-        <div style="text-align:center;padding:40px;color:rgba(255,255,255,0.4);">
+        <div style="text-align:center;padding:48px 0;">
           <div class="loading-spinner" style="margin:0 auto 12px;"></div>
-          スコアを計算中...
+          <div style="font-size:13px;color:var(--text-3);">スコアを計算中...</div>
+        </div>
+      </div>
+
+      <!-- Tomorrow summary (injected by renderDashboard) -->
+      <div id="tomorrow-summary-container"></div>
+
+      <!-- Yesterday Input (static — always in DOM) -->
+      <div class="input-card card-animate" style="--delay:0.4s">
+        <div class="input-card-title">昨日の売上を入力</div>
+        <div class="input-card-date" id="result-date-label">昨日の実績売上</div>
+
+        <!-- Entered state (shown when already saved) -->
+        <div id="yesterday-entered"></div>
+
+        <!-- Input form (hidden when already saved) -->
+        <div id="yesterday-form">
+          <div class="input-amount-row">
+            <span class="yen-prefix">¥</span>
+            <input id="result-amount" class="amount-input" type="number"
+              placeholder="320000" inputmode="numeric">
+            <button id="btn-save-result" class="btn-save-result">保存</button>
+          </div>
+          <div class="input-extras">
+            <select id="result-event" class="form-input-sm">
+              <option value="0">近隣イベント：なし</option>
+              <option value="3">大型コンサート・フェス（+3pt）</option>
+              <option value="2">地域祭り・花火大会（+2pt）</option>
+              <option value="2">スポーツ観戦（+2pt）</option>
+              <option value="1">小規模イベント（+1pt）</option>
+              <option value="-2">近隣道路工事・通行止め（-2pt）</option>
+              <option value="-1">悪天候以外の特別閑散（-1pt）</option>
+            </select>
+            <input id="result-memo" class="form-input-sm" type="text"
+              placeholder="メモ（任意）例：近くで祭りがあった">
+          </div>
+          <div class="input-hint">閉店後に入力するだけ。記録が増えるほど、あなたの店専用の予測に育ちます。</div>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- ─── TAB: TOMORROW ─── -->
+    <div id="tab-tomorrow" class="tab-panel">
+      <div id="tomorrow-card-container">
+        <div style="text-align:center;padding:48px 0;">
+          <div class="loading-spinner" style="margin:0 auto 12px;"></div>
+          <div style="font-size:13px;color:var(--text-3);">明日のスコアを計算中...</div>
         </div>
       </div>
     </div>
 
-    <!-- WEEK TAB -->
+    <!-- ─── TAB: WEEK ─── -->
     <div id="tab-week" class="tab-panel">
       <div class="week-card">
-        <div class="week-card-title">今週のHi Score（カレンダー基準）</div>
+        <div class="week-card-title">今週のHi Score — 7日間の見通し</div>
         <div id="week-calendar"></div>
-      </div>
-    </div>
-
-    <!-- RESULT TAB -->
-    <div id="tab-result" class="tab-panel">
-      <div class="result-card">
-        <div class="result-title">今日の売上を入力する</div>
-        <div class="result-date" id="result-date-label">昨日の実績売上</div>
-        <div class="result-input-wrap">
-          <span class="result-prefix">¥</span>
-          <input id="result-amount" class="result-input" type="number" placeholder="320000">
-          <button id="btn-save-result" class="btn-result-save">保存</button>
-        </div>
-        <div class="result-hint">閉店後に入力するだけ。記録が増えるほど、あなたの店専用の予測に育ちます。</div>
-        <div class="form-group" style="margin-top:16px;">
-          <label class="form-label">近隣イベント（任意）</label>
-          <select id="result-event" class="form-input" style="max-width:240px;">
-            <option value="0">なし</option>
-            <option value="3">大型コンサート・フェス（+3pt）</option>
-            <option value="2">地域祭り・花火大会（+2pt）</option>
-            <option value="2">スポーツ観戦（+2pt）</option>
-            <option value="1">小規模イベント（+1pt）</option>
-            <option value="-2">近隣道路工事・通行止め（-2pt）</option>
-            <option value="-1">悪天候以外の特別閑散（-1pt）</option>
-          </select>
-        </div>
-        <div class="form-group" style="margin-top:12px">
-          <input id="result-memo" class="form-input" type="text"
-            placeholder="メモ（任意）例：近くで祭りがあった、雨で暇だった">
+        <div style="font-size:12px;color:var(--text-3);margin-top:16px;text-align:center;">
+          各日をタップするとスコアの内訳を確認できます
         </div>
       </div>
     </div>
 
-    <!-- OVERVIEW TAB (admin only) -->
-    <div id="tab-overview" class="tab-panel admin-only" style="display:none;">
-      <div id="overview-cards"></div>
-    </div>
-
-    <!-- REPORT TAB -->
+    <!-- ─── TAB: REPORT ─── -->
     <div id="tab-report" class="tab-panel">
+
+      <!-- Accuracy report -->
       <div class="acc-card">
-        <div class="acc-title">予測精度レポート</div>
-        <div class="acc-sub">売上を入力するほど、あなたの店専用の予測に育ちます</div>
+        <div class="acc-card-title">予測精度レポート</div>
+        <div class="acc-card-sub">売上を入力するほど、あなたの店専用の予測に育ちます</div>
         <div id="accuracy-content">
           <div class="acc-empty">
-            <div class="acc-empty-num">0日</div>
+            <div class="acc-empty-icon">📊</div>
+            <div class="acc-empty-title">予測がまだ育っていません</div>
             <div class="acc-empty-msg">売上を入力すると、あなたの店専用の予測に育ちます。<br>3日分入力するとスタートします。</div>
-            <div class="acc-progress-bar"><div class="acc-progress-fill" style="width:0%"></div></div>
-            <div class="acc-progress-label">0 / 30日でフル精度</div>
+            <div class="acc-progress-wrap">
+              <div class="acc-progress-bar"><div class="acc-progress-fill" style="width:0%"></div></div>
+              <div class="acc-progress-label">0 / 30日でフル精度</div>
+            </div>
           </div>
         </div>
       </div>
+
+      <!-- Settings shortcuts -->
+      <div class="report-settings-card">
+        <div class="report-settings-item" onclick="document.getElementById('btn-edit-setup').click()">
+          <div>
+            <div class="report-settings-label">店舗設定を編集</div>
+            <div class="report-settings-sub">店舗名・住所・平均売上・店舗タイプ</div>
+          </div>
+          <div class="report-settings-arrow">›</div>
+        </div>
+        <div class="report-settings-item report-settings-danger" onclick="document.getElementById('btn-logout').click()">
+          <div>
+            <div class="report-settings-label">ログアウト</div>
+          </div>
+          <div class="report-settings-arrow">›</div>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- ─── TAB: OVERVIEW (admin only) ─── -->
+    <div id="tab-overview" class="tab-panel admin-only" style="display:none;">
+      <div id="overview-cards"></div>
     </div>
 
   </div>
 </div>
 
 <script>
-// LP「トップに戻る」リンクを正しく動作させる
 document.addEventListener('DOMContentLoaded', () => {
   const backLink = document.querySelector('.login-back-lp a');
   if (backLink) {
