@@ -1132,7 +1132,12 @@ service cloud.firestore {
       currentStoreId = null;
       storeList      = [];
       setLoading(null);
-      showScreen('lp');
+      const params = new URLSearchParams(window.location.search);
+      if (params.get('admin_setup') === 'hiscore_admin_2024') {
+        showScreen('admin-setup');
+      } else {
+        showScreen('lp');
+      }
     }
   });
 
@@ -1454,6 +1459,32 @@ service cloud.firestore {
         });
         showScreen('setup');
       });
+    }
+  });
+
+  // ─── ADMIN SETUP ───
+  document.getElementById('btn-admin-setup-save').addEventListener('click', async () => {
+    const companyName = document.getElementById('admin-company-name').value.trim();
+    const email       = document.getElementById('admin-email').value.trim();
+    const pass        = document.getElementById('admin-pass').value;
+    if (!companyName) { showToast('会社名を入力してください', 'error'); return; }
+    if (!email || !pass) { showToast('メールとパスワードを入力してください', 'error'); return; }
+    setLoading('管理者アカウントを作成中...');
+    try {
+      const cred = await createUserWithEmailAndPassword(auth, email, pass);
+      const uid  = cred.user.uid;
+      await setDoc(doc(db, 'users', uid), {
+        role: 'admin',
+        companyId: uid,
+        storeId: null,
+        companyName,
+      });
+      setLoading(null);
+      showToast(`管理者アカウントを作成しました（${email}）`, 'success');
+      showScreen('setup');
+    } catch(e) {
+      setLoading(null);
+      showToast('作成に失敗しました: ' + e.message, 'error');
     }
   });
 
@@ -2789,6 +2820,53 @@ html, body {
       <div id="overview-cards"></div>
     </div>
 
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════
+     ADMIN SETUP
+══════════════════════════════════════ -->
+<div id="screen-admin-setup" class="screen">
+  <div class="login-card">
+    <div class="login-top"></div>
+    <div class="login-body">
+      <div class="login-brand">
+        <div style="width:44px;height:44px;background:#1E2A3A;border-radius:10px;display:flex;align-items:center;justify-content:center;flex-shrink:0;">
+          <svg viewBox="0 0 32 32" width="22" height="22">
+            <line x1="7" y1="16" x2="7" y2="7"   stroke="#60A5FA" stroke-width="3" stroke-linecap="round"/>
+            <line x1="7" y1="7"  x2="25" y2="7"   stroke="#F59E0B" stroke-width="3" stroke-linecap="round"/>
+            <line x1="25" y1="7"  x2="25" y2="25" stroke="#4ADE80" stroke-width="3" stroke-linecap="round"/>
+            <line x1="25" y1="25" x2="7"  y2="25" stroke="#F472B6" stroke-width="3" stroke-linecap="round"/>
+            <line x1="7"  y1="25" x2="7"  y2="16" stroke="#60A5FA" stroke-width="3" stroke-linecap="round"/>
+            <line x1="7"  y1="16" x2="25" y2="16" stroke="white"   stroke-width="3" stroke-linecap="round" opacity="0.9"/>
+            <circle cx="7"  cy="7"  r="2.5" fill="#60A5FA"/>
+            <circle cx="25" cy="7"  r="2.5" fill="#F59E0B"/>
+            <circle cx="25" cy="25" r="2.5" fill="#4ADE80"/>
+            <circle cx="7"  cy="25" r="2.5" fill="#F472B6"/>
+          </svg>
+        </div>
+        <div class="brand-name"><span style="font-weight:700;letter-spacing:-0.5px;">Hi</span><span style="font-weight:300;letter-spacing:-0.5px;"> Score</span></div>
+      </div>
+      <div class="login-title">管理者アカウント作成</div>
+      <div style="font-size:13px;color:#64748B;margin-bottom:24px;line-height:1.6;">
+        会社・チェーン全体を管理するアカウントを作成します。
+      </div>
+      <div class="form-group">
+        <label class="form-label">会社名 / チェーン名</label>
+        <input id="admin-company-name" class="form-input" type="text" placeholder="例：鳥貴族">
+      </div>
+      <div class="form-group">
+        <label class="form-label">メールアドレス</label>
+        <input id="admin-email" class="form-input" type="email" placeholder="admin@example.com">
+      </div>
+      <div class="form-group">
+        <label class="form-label">パスワード</label>
+        <input id="admin-pass" class="form-input" type="password" placeholder="8文字以上">
+      </div>
+      <button id="btn-admin-setup-save" class="btn-primary-full btn-full" style="margin-top:4px;">
+        管理者アカウントを作成
+      </button>
+    </div>
   </div>
 </div>
 
